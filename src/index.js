@@ -11,6 +11,12 @@ require('dotenv').config();
 
 const app = express();
 
+// Enable CORS for React Native
+app.use(cors({
+  origin: '*', // In production, specify your frontend URL
+  credentials: true
+}));
+
 // Import Routes
 const authRoutes = require('./routes/auth.routes');
 const habitRoutes = require('./routes/habit.routes');
@@ -38,6 +44,7 @@ mongoose.connect(process.env.MONGO_URI)
     CronService.initializeCronJobs();
   })
   .catch(err => console.error('❌ MongoDB Connection Error:', err));
+  console.log("MONGO_URI =>", process.env.MONGO_URI);
 
 // Routes
 app.use('/api/auth', authRoutes);

@@ -1,15 +1,17 @@
 // ============================================
-// FILE: controllers/sharedHabit.controller.js (FIXED)
+// FILE: controllers/sharedHabit.controller.js (COMPLETE FIXED)
 // ============================================
 const SharedHabit = require('../models/sharedHabit.model');
+const InviteToken = require('../models/inviteToken.model');
 const User = require('../models/user.model');
 const NotificationService = require('../services/notification.service');
+const MessagingService = require('../services/messaging.service');
 const moment = require('moment');
 
 // ✅ CREATE SHARED HABIT
 exports.createSharedHabit = async (req, res) => {
   try {
-    const userId = req.userId || req.user._id; // Support both formats
+    const userId = req.userId || req.user._id;
     
     const sharedHabit = await SharedHabit.create({
       ...req.body,
@@ -23,12 +25,25 @@ exports.createSharedHabit = async (req, res) => {
   }
 };
 
-// ✅ INVITE PARTICIPANT
+// ✅ INVITE PARTICIPANT (SMART SYSTEM - FIXED)
 exports.inviteParticipant = async (req, res) => {
   try {
     const { habitId } = req.params;
     const { email } = req.body;
     const userId = req.userId || req.user._id;
+    
+    console.log("=== INVITE PARTICIPANT DEBUG ===");
+    console.log("habitId:", habitId);
+    console.log("email:", email);
+    console.log("userId:", userId);
+    
+    // Validate email
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid email address' 
+      });
+    }
     
     const sharedHabit = await SharedHabit.findById(habitId);
     
@@ -41,18 +56,136 @@ exports.inviteParticipant = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only creator can invite' });
     }
     
-    // Add participant
-    sharedHabit.participants.push({ email, status: 'pending' });
-    await sharedHabit.save();
+    // Check if already invited
+    const alreadyInvited = sharedHabit.participants.some(
+      p => p.email.toLowerCase() === email.toLowerCase()
+    );
     
-    res.json({ success: true, data: sharedHabit });
+    if (alreadyInvited) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User already invited' 
+      });
+    }
+    
+    // 🔍 CHECK IF USER EXISTS
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const inviter = await User.findById(userId);
+    
+    console.log("Existing user:", existingUser ? existingUser.email : 'Not found');
+    
+    if (existingUser) {
+      // ✅ USER EXISTS → Send in-app notification
+      
+      // Add to participants
+      sharedHabit.participants.push({ 
+        userId: existingUser._id,
+        email: email.toLowerCase(),
+        status: 'pending' 
+      });
+      await sharedHabit.save();
+      
+      console.log("✅ Added existing user to participants");
+      
+      // Send in-app notification
+      await NotificationService.createNotification(existingUser._id, {
+        type: 'habit_invitation',
+        title: 'New Habit Invitation',
+        body: `${inviter.name} invited you to join "${sharedHabit.title}"`,
+        relatedEntity: {
+          entityType: 'shared_habit',
+          entityId: sharedHabit._id
+        }
+      });
+      
+      return res.json({ 
+        success: true, 
+        message: 'In-app invitation sent',
+        method: 'in-app',
+        data: sharedHabit 
+      });
+      
+    // In sharedHabit.controller.js - update the email sending part:
+
+} else {
+  // ❌ USER DOESN'T EXIST → Send email with invite link
+  
+  console.log("📧 User doesn't exist, creating invite token...");
+  
+  // Create invite token
+  const inviteToken = await InviteToken.create({
+    invitedBy: userId,
+    invitedEmail: email.toLowerCase(),
+    habitId: habitId
+  });
+  
+  console.log("✅ Invite token created:", inviteToken.token);
+  
+  // Add to participants (without userId yet)
+  sharedHabit.participants.push({ 
+    email: email.toLowerCase(),
+    status: 'pending' 
+  });
+  await sharedHabit.save();
+  
+  // Generate invite link
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const inviteLink = `${frontendUrl}/invite/${inviteToken.token}`;
+  
+  console.log("📧 Invite link generated:", inviteLink);
+  
+  // Try to send email
+  const emailResult = await MessagingService.sendInviteEmail({
+    email: email,
+    inviterName: inviter.name,
+    habitTitle: sharedHabit.title,
+    inviteLink: inviteLink
+  });
+  
+  // Response based on email result
+  if (emailResult.success) {
+    if (emailResult.devMode) {
+      return res.json({ 
+        success: true, 
+        message: 'Invitation created (dev mode - email not configured)',
+        method: 'email',
+        inviteLink: inviteLink,
+        emailSent: false,
+        note: 'Copy the invite link manually for testing',
+        data: sharedHabit 
+      });
+    } else {
+      return res.json({ 
+        success: true, 
+        message: 'Email invitation sent successfully',
+        method: 'email',
+        inviteLink: inviteLink,
+        emailSent: true,
+        data: sharedHabit 
+      });
+    }
+  } else {
+    // Email failed but invitation created
+    return res.json({ 
+      success: true, 
+      message: 'Invitation created but email failed to send',
+      method: 'email',
+      inviteLink: inviteLink,
+      emailSent: false,
+      emailError: emailResult.error,
+      note: 'Share the invite link manually',
+      data: sharedHabit 
+    });
+  }
+}
+    
   } catch (error) {
-    console.error('Invite participant error:', error);
+    console.error('❌ Invite participant error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ✅ ACCEPT INVITATION (EMAIL-BASED - FIXED)
+// ✅ ACCEPT INVITATION (IN-APP - Existing User)
 exports.acceptInvitation = async (req, res) => {
   try {
     const { habitId } = req.params;
@@ -70,9 +203,8 @@ exports.acceptInvitation = async (req, res) => {
     }
     
     console.log("✅ Habit found:", sharedHabit.title);
-    console.log("All participants:", sharedHabit.participants);
     
-    // Get user email to match with invitation
+    // Get user email
     const user = await User.findById(userId);
     if (!user) {
       console.log("❌ User not found");
@@ -80,8 +212,9 @@ exports.acceptInvitation = async (req, res) => {
     }
     
     console.log("✅ User found:", user.email);
+    console.log("All participants:", sharedHabit.participants);
     
-    // Find participant by EMAIL (jo invitation send ki thi)
+    // Find participant by email
     const participant = sharedHabit.participants.find(
       p => p.email === user.email && p.status === 'pending'
     );
@@ -96,7 +229,7 @@ exports.acceptInvitation = async (req, res) => {
       });
     }
     
-    // Update participant
+    // Accept invitation
     participant.userId = userId;
     participant.status = 'accepted';
     participant.joinedAt = new Date();
@@ -118,6 +251,134 @@ exports.acceptInvitation = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ✅ VERIFY INVITE TOKEN (For new users - NO AUTH NEEDED)
+exports.verifyInviteToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    console.log("=== VERIFY INVITE TOKEN ===");
+    console.log("token:", token);
+    
+    const inviteToken = await InviteToken.findOne({ token, status: 'pending' })
+      .populate('invitedBy', 'name email')
+      .populate('habitId', 'title description');
+    
+    if (!inviteToken) {
+      console.log("❌ Token not found or already used");
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Invalid or expired invite link' 
+      });
+    }
+    
+    console.log("✅ Token found, checking expiry...");
+    
+    // Check if expired
+    if (new Date() > inviteToken.expiresAt) {
+      console.log("❌ Token expired");
+      inviteToken.status = 'expired';
+      await inviteToken.save();
+      
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invite link has expired' 
+      });
+    }
+    
+    console.log("✅ Token valid");
+    
+    res.json({ 
+      success: true, 
+      data: {
+        email: inviteToken.invitedEmail,
+        inviterName: inviteToken.invitedBy.name,
+        habitTitle: inviteToken.habitId.title,
+        habitDescription: inviteToken.habitId.description
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Verify token error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ✅ ACCEPT INVITE AFTER SIGNUP (New users)
+exports.acceptInviteAfterSignup = async (req, res) => {
+  try {
+    const { token } = req.body;
+    const userId = req.userId || req.user._id;
+    
+    console.log("=== ACCEPT INVITE AFTER SIGNUP ===");
+    console.log("token:", token);
+    console.log("userId:", userId);
+    
+    const inviteToken = await InviteToken.findOne({ token, status: 'pending' });
+    
+    if (!inviteToken) {
+      console.log("❌ Invalid token");
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Invalid invite token' 
+      });
+    }
+    
+    console.log("✅ Token valid, finding habit...");
+    
+    const user = await User.findById(userId);
+    const sharedHabit = await SharedHabit.findById(inviteToken.habitId);
+    
+    if (!sharedHabit) {
+      console.log("❌ Habit not found");
+      return res.status(404).json({ success: false, message: 'Habit not found' });
+    }
+    
+    console.log("✅ Habit found, updating participant...");
+    
+    // Find participant by email
+    const participant = sharedHabit.participants.find(
+      p => p.email === inviteToken.invitedEmail && p.status === 'pending'
+    );
+    
+    if (participant) {
+      participant.userId = userId;
+      participant.status = 'accepted';
+      participant.joinedAt = new Date();
+      
+      await sharedHabit.save();
+      console.log("✅ Participant updated");
+    } else {
+      console.log("⚠️ Participant not found, adding new...");
+      // If participant entry doesn't exist, create it
+      sharedHabit.participants.push({
+        userId: userId,
+        email: inviteToken.invitedEmail,
+        status: 'accepted',
+        joinedAt: new Date()
+      });
+      await sharedHabit.save();
+    }
+    
+    // Mark token as used
+    inviteToken.status = 'accepted';
+    inviteToken.usedAt = new Date();
+    await inviteToken.save();
+    
+    console.log("✅ Token marked as accepted");
+    
+    res.json({ 
+      success: true, 
+      message: 'Successfully joined habit',
+      data: sharedHabit 
+    });
+    
+  } catch (error) {
+    console.error('❌ Accept invite after signup error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // ✅ DECLINE INVITATION
 exports.declineInvitation = async (req, res) => {
   try {
@@ -130,8 +391,12 @@ exports.declineInvitation = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Habit not found' });
     }
     
+    const user = await User.findById(userId);
+    
+    // Find by email OR userId
     const participant = sharedHabit.participants.find(
-      p => p.userId && p.userId.toString() === userId.toString()
+      p => (p.email === user.email || (p.userId && p.userId.toString() === userId.toString())) 
+           && p.status === 'pending'
     );
     
     if (participant) {
@@ -153,6 +418,7 @@ exports.getMySharedHabits = async (req, res) => {
     
     const habits = await SharedHabit.find({
       'participants.userId': userId,
+      'participants.status': 'accepted',
       isActive: true
     }).populate('participants.userId', 'name email');
     
@@ -167,7 +433,8 @@ exports.getMySharedHabits = async (req, res) => {
 exports.getSharedHabitDetails = async (req, res) => {
   try {
     const habit = await SharedHabit.findById(req.params.habitId)
-      .populate('participants.userId', 'name email');
+      .populate('participants.userId', 'name email')
+      .populate('createdBy', 'name email');
     
     if (!habit) {
       return res.status(404).json({ success: false, message: 'Habit not found' });
@@ -212,7 +479,7 @@ exports.getStreakInfo = async (req, res) => {
   }
 };
 
-// ✅ COMPLETE TASK with proper day counting
+// ✅ COMPLETE TASK
 exports.completeTask = async (req, res) => {
   try {
     const { habitId } = req.params;
@@ -299,10 +566,14 @@ exports.completeTask = async (req, res) => {
       // Notify all participants about streak
       if (sharedHabit.notifications.notifyOnStreak) {
         for (const participant of acceptedParticipants) {
-          await NotificationService.sendNotification(participant.userId._id, {
+          await NotificationService.createNotification(participant.userId._id, {
             type: 'streak_milestone',
-            message: `🔥 Streak ${sharedHabit.sharedStreak.current}! Everyone completed "${sharedHabit.title}" today!`,
-            habitId: sharedHabit._id
+            title: 'Streak Milestone! 🔥',
+            body: `Streak ${sharedHabit.sharedStreak.current}! Everyone completed "${sharedHabit.title}" today!`,
+            relatedEntity: {
+              entityType: 'shared_habit',
+              entityId: sharedHabit._id
+            }
           });
         }
       }
@@ -315,10 +586,14 @@ exports.completeTask = async (req, res) => {
       const completedUser = req.user || await User.findById(userId);
       
       for (const participant of notCompletedYet) {
-        await NotificationService.sendNotification(participant.userId._id, {
+        await NotificationService.createNotification(participant.userId._id, {
           type: 'reminder',
-          message: `⏰ ${completedUser.name || 'Someone'} completed "${sharedHabit.title}". Don't break the streak!`,
-          habitId: sharedHabit._id
+          title: 'Reminder ⏰',
+          body: `${completedUser.name || 'Someone'} completed "${sharedHabit.title}". Don't break the streak!`,
+          relatedEntity: {
+            entityType: 'shared_habit',
+            entityId: sharedHabit._id
+          }
         });
       }
     }
@@ -431,7 +706,7 @@ exports.leaveSharedHabit = async (req, res) => {
     }
     
     habit.participants = habit.participants.filter(
-      p => p.userId.toString() !== userId.toString()
+      p => !p.userId || p.userId.toString() !== userId.toString()
     );
     
     await habit.save();
@@ -491,11 +766,17 @@ exports.checkAndResetStreaks = async () => {
             const acceptedParticipants = habit.participants.filter(p => p.status === 'accepted');
             
             for (const participant of acceptedParticipants) {
-              await NotificationService.sendNotification(participant.userId, {
-                type: 'streak_broken',
-                message: `💔 Streak broken for "${habit.title}". Not everyone completed yesterday.`,
-                habitId: habit._id
-              });
+              if (participant.userId) {
+                await NotificationService.createNotification(participant.userId, {
+                  type: 'streak_broken',
+                  title: 'Streak Broken 💔',
+                  body: `Streak broken for "${habit.title}". Not everyone completed yesterday.`,
+                  relatedEntity: {
+                    entityType: 'shared_habit',
+                    entityId: habit._id
+                  }
+                });
+              }
             }
           }
           

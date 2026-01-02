@@ -1,42 +1,109 @@
-// ============================================
-// FILE: middleware/auth.middleware.js
-// ============================================
+// middleware/auth.middleware.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
 
+// Simple logger that respects environment
+const logger = {
+  debug: (message, data) => {
+    if (process.env.NODE_ENV === 'development' && process.env.DEBUG_AUTH === 'true') {
+      console.log(`[Auth] ${message}`, data || '');
+    }
+  },
+  error: (message, error) => {
+    console.error(`[Auth Error] ${message}`, error?.message || error);
+  },
+  info: (message) => {
+    console.log(`[Auth] ${message}`);
+  }
+};
+
 /**
- * Authentication middleware
- * Verifies JWT token and attaches user to request object
+ * Authentication middleware - Production ready with minimal logging
  */
-
-
 const authenticate = async (req, res, next) => {
   try {
     // Get token from header
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const authHeader = req.header('Authorization');
     
-    if (!token) {
+    if (!authHeader) {
       return res.status(401).json({ 
         success: false, 
         message: 'No authentication token provided' 
       });
     }
+
+    // Extract token - handle both "Bearer token" and just "token"
+    let token;
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else {
+      token = authHeader;
+    }
+
+    if (!token || token === 'null' || token === 'undefined') {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid authentication token' 
+      });
+    }
+    
+    // Check JWT_SECRET exists
+    if (!process.env.JWT_SECRET) {
+      logger.error('JWT_SECRET not found in environment');
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Server configuration error' 
+      });
+    }
     
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      logger.debug('Token verified', { userId: decoded.userId });
+    } catch (jwtError) {
+      if (jwtError.name === 'JsonWebTokenError') {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Invalid token'
+        });
+      }
+      
+      if (jwtError.name === 'TokenExpiredError') {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Token expired',
+          expiredAt: jwtError.expiredAt
+        });
+      }
+      
+      throw jwtError;
+    }
     
     // Find user by ID
-    const user = await User.findById(decoded.userId).select('-password');
+    const userId = decoded.userId || decoded.id;
+    
+    if (!userId) {
+      logger.error('No userId in token payload');
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid token payload' 
+      });
+    }
+
+    const user = await User.findById(userId).select('-password');
     
     if (!user) {
+      logger.debug('User not found', { userId });
       return res.status(401).json({ 
         success: false, 
         message: 'User not found' 
       });
     }
     
-    // Check if user is active (optional)
+    // Check if user is active
     if (user.isActive === false) {
+      logger.debug('User account deactivated', { email: user.email });
       return res.status(403).json({ 
         success: false, 
         message: 'Account is deactivated' 
@@ -47,60 +114,56 @@ const authenticate = async (req, res, next) => {
     req.user = user;
     req.userId = user._id;
     
+    logger.debug('Authentication successful', { email: user.email });
     next();
     
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid token' 
-      });
-    }
+    logger.error('Authentication failed', error);
     
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Token expired' 
-      });
-    }
-    
-    console.error('Authentication error:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Authentication failed' 
+      message: 'Authentication failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 /**
  * Optional authentication middleware
- * Attaches user if token exists, but doesn't fail if missing
  */
 const optionalAuthenticate = async (req, res, next) => {
   try {
-    const token = req.header('Authorization')?.replace('Bearer ', '');
+    const authHeader = req.header('Authorization');
     
-    if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.userId).select('-password');
+    if (authHeader) {
+      let token;
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+      } else {
+        token = authHeader;
+      }
       
-      if (user && user.isActive !== false) {
-        req.user = user;
-        req.userId = user._id;
+      if (token && token !== 'null' && token !== 'undefined') {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.userId || decoded.id).select('-password');
+        
+        if (user && user.isActive !== false) {
+          req.user = user;
+          req.userId = user._id;
+        }
       }
     }
     
     next();
     
   } catch (error) {
-    // Silent fail - just continue without user
+    logger.debug('Optional auth failed silently', { error: error.message });
     next();
   }
 };
 
 /**
  * Role-based authorization middleware
- * Usage: authorize(['admin', 'moderator'])
  */
 const authorize = (...roles) => {
   return (req, res, next) => {
@@ -112,6 +175,10 @@ const authorize = (...roles) => {
     }
     
     if (!roles.includes(req.user.role)) {
+      logger.debug('Authorization denied', { 
+        userRole: req.user.role, 
+        requiredRoles: roles 
+      });
       return res.status(403).json({ 
         success: false, 
         message: 'Insufficient permissions' 
@@ -142,11 +209,12 @@ const isPro = async (req, res, next) => {
   
   next();
 };
-console.log('✅ Exporting authenticate function:', typeof authenticate);
+
+logger.info('Auth middleware loaded');
 
 module.exports = {
   authenticate,
   optionalAuthenticate,
   authorize,
-  isPro  // ✅ Added isPro to exports
+  isPro
 };
