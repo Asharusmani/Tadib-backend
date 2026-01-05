@@ -1,5 +1,12 @@
 const mongoose = require('mongoose');
 
+// ✅ Duration mapping
+const FREQUENCY_DURATION = {
+  'Daily': 1,
+  'Weekly': 7,
+  'Monthly': 30
+};
+
 const habitSchema = new mongoose.Schema({
   userId: { 
     type: mongoose.Schema.Types.ObjectId, 
@@ -8,7 +15,6 @@ const habitSchema = new mongoose.Schema({
     index: true 
   },
   
-  // ✅ Frontend sends 'name' not 'title'
   name: { 
     type: String, 
     required: true, 
@@ -16,7 +22,6 @@ const habitSchema = new mongoose.Schema({
     maxlength: 50
   },
   
-  // ✅ Icon index from frontend (0-15)
   icon: { 
     type: Number, 
     required: true,
@@ -24,20 +29,17 @@ const habitSchema = new mongoose.Schema({
     max: 15
   },
   
-  // ✅ Match frontend categories exactly (with capital letters)
   category: { 
     type: String, 
     enum: ['Spiritual', 'Health', 'Learning', 'Discipline'],
     required: true
   },
   
-  // ✅ Boolean instead of enum string
   isNegative: { 
     type: Boolean, 
     default: false 
   },
   
-  // ✅ Renamed from 'pointsValue'
   points: { 
     type: Number, 
     required: true, 
@@ -46,7 +48,6 @@ const habitSchema = new mongoose.Schema({
     max: 100
   },
   
-  // ✅ Direct field (was nested in streaks.bufferDaysAllowed)
   skipDaysAllowed: { 
     type: Number, 
     default: 0,
@@ -54,20 +55,31 @@ const habitSchema = new mongoose.Schema({
     max: 5
   },
   
-  // ✅ Match frontend values exactly
   frequency: { 
     type: String, 
     enum: ['Daily', 'Weekly', 'Monthly'],
     default: 'Daily' 
   },
   
-  // ✅ Store as ISO string from frontend
   reminderTime: { 
     type: String, 
     required: true 
   },
   
-  // ✅ Simplified streak tracking (per habit)
+  // ✅ Date fields - set by pre-save hook
+  startDate: {
+    type: Date,
+    default: Date.now
+  },
+  
+  endDate: {
+    type: Date
+  },
+  
+  durationDays: {
+    type: Number
+  },
+  
   streak: { 
     type: Number, 
     default: 0 
@@ -82,12 +94,10 @@ const habitSchema = new mongoose.Schema({
     type: Date 
   },
   
-  // ✅ Simple array of completion dates (from frontend)
   completedDates: [{ 
     type: Date 
   }],
   
-  // ✅ Stats for analytics
   stats: {
     totalCompletions: { type: Number, default: 0 },
     totalPointsEarned: { type: Number, default: 0 }
@@ -105,22 +115,59 @@ const habitSchema = new mongoose.Schema({
   
   pausedUntil: Date,
   
-  // ✅ Track buffer days usage
   bufferDaysUsed: {
     type: Number,
     default: 0
   }
   
 }, {
-  timestamps: true // Creates createdAt and updatedAt automatically
+  timestamps: true
 });
 
-// Indexes for better query performance
+// ========================================
+// ✅ ONLY ONE PRE-SAVE HOOK (ASYNC VERSION)
+// ========================================
+habitSchema.pre('save', async function() {
+  // Calculate dates for new habits or when frequency changes
+  if (this.isNew || this.isModified('frequency')) {
+    const daysToAdd = FREQUENCY_DURATION[this.frequency] || 1;
+    
+    if (!this.startDate) {
+      this.startDate = new Date();
+    }
+    
+    const endDate = new Date(this.startDate);
+    endDate.setDate(endDate.getDate() + daysToAdd);
+    this.endDate = endDate;
+    this.durationDays = daysToAdd;
+    
+    console.log('✅ Dates calculated:', {
+      name: this.name,
+      frequency: this.frequency,
+      duration: daysToAdd,
+      start: this.startDate.toISOString(),
+      end: this.endDate.toISOString()
+    });
+  }
+  // No next() needed with async function
+});
+
+// ========================================
+// INDEXES
+// ========================================
 habitSchema.index({ userId: 1, isActive: 1 });
 habitSchema.index({ userId: 1, category: 1 });
 habitSchema.index({ userId: 1, createdAt: -1 });
+habitSchema.index({ userId: 1, endDate: 1 });
 
-// Virtual for checking if habit is completed today
+// ========================================
+// VIRTUALS
+// ========================================
+habitSchema.virtual('isExpired').get(function() {
+  if (!this.endDate) return false;
+  return new Date() > this.endDate;
+});
+
 habitSchema.virtual('completedToday').get(function() {
   if (!this.completedDates || this.completedDates.length === 0) return false;
   
@@ -134,14 +181,23 @@ habitSchema.virtual('completedToday').get(function() {
   });
 });
 
-// Method to check streak (per habit)
+// ========================================
+// METHODS
+// ========================================
+habitSchema.methods.getRemainingDays = function() {
+  if (!this.endDate) return 0;
+  const now = new Date();
+  const diffTime = this.endDate - now;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return Math.max(0, diffDays);
+};
+
 habitSchema.methods.updateStreak = function() {
   if (this.completedDates.length === 0) {
     this.streak = 0;
     return;
   }
 
-  // Sort dates in descending order
   const sortedDates = this.completedDates
     .map(d => new Date(d))
     .sort((a, b) => b - a);
@@ -170,5 +226,11 @@ habitSchema.methods.updateStreak = function() {
     this.longestStreak = currentStreak;
   }
 };
+
+// ========================================
+// ENABLE VIRTUALS IN JSON/OBJECT
+// ========================================
+habitSchema.set('toJSON', { virtuals: true });
+habitSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('Habit', habitSchema);

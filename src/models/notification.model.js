@@ -1,3 +1,7 @@
+// ============================================
+// 1. UPDATE: models/notification.model.js
+// ============================================
+
 const mongoose = require('mongoose');
 
 const notificationSchema = new mongoose.Schema({
@@ -10,7 +14,15 @@ const notificationSchema = new mongoose.Schema({
   
   type: { 
     type: String, 
-    enum: ['task_reminder', 'group_activity', 'challenge_update', 'achievement', 'quranic_verse', 'system'],
+    enum: [
+      'task_reminder', 
+      'group_activity', 
+      'challenge_update', 
+      'achievement', 
+      'quranic_verse', 
+      'system',
+      'security_alert'  // ✅ NEW: Security notifications
+    ],
     required: true
   },
   
@@ -32,6 +44,16 @@ const notificationSchema = new mongoose.Schema({
     ayah: String,
     translation: String,
     topic: String
+  },
+  
+  // ✅ NEW: Security/Login metadata
+  securityMetadata: {
+    deviceInfo: String,
+    browser: String,
+    os: String,
+    ipAddress: String,
+    location: String,
+    loginTime: Date
   },
   
   scheduledFor: Date,

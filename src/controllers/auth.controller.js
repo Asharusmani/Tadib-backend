@@ -2,6 +2,8 @@ const User = require('../models/user.model');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const notificationService = require('../services/notification.service');
+const { getDeviceInfo, getLocationFromIP } = require('../../src/utilis/deviceDetector');
 
 const generateToken = (userId) => {
     return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -18,7 +20,7 @@ exports.register = async (req, res) => {
 
         const verificationToken = crypto.randomBytes(32).toString('hex');
         const hashedPassword = await bcrypt.hash(password, 12);
-        // ✅ Fixed: Use proper nested object structure
+        
         const user = await User.create({
             email,
             password: hashedPassword,
@@ -31,6 +33,20 @@ exports.register = async (req, res) => {
 
         const token = generateToken(user._id);
 
+        // ✅ Send welcome notification after registration
+        try {
+            await notificationService.createNotification(user._id, {
+                type: 'system',
+                title: '🎉 Welcome to Tadib!',
+                body: 'Start building better habits and earning rewards today!',
+                actions: [
+                    { actionType: 'view', label: 'Get Started' }
+                ]
+            });
+        } catch (notifError) {
+            console.error('Welcome notification error:', notifError.message);
+        }
+
         res.status(201).json({
             success: true,
             token,
@@ -41,7 +57,7 @@ exports.register = async (req, res) => {
             }
         });
     } catch (error) {
-        console.log(error)
+        console.log(error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -68,6 +84,19 @@ exports.login = async (req, res) => {
         await user.save();
 
         const token = generateToken(user._id);
+
+        // ✅ NEW: Send sign-in notification
+        try {
+            const deviceInfo = getDeviceInfo(req);
+            const location = await getLocationFromIP(deviceInfo.ipAddress);
+            
+            await notificationService.sendSignInNotification(user._id, {
+                ...deviceInfo,
+                location
+            });
+        } catch (notifError) {
+            console.error('Sign-in notification error:', notifError.message);
+        }
 
         res.json({
             success: true,
@@ -100,7 +129,6 @@ exports.socialLogin = async (req, res) => {
             if (user) {
                 user.socialAuth = { provider, providerId, accessToken };
             } else {
-                // ✅ Fixed: Use proper nested object structure
                 user = await User.create({
                     email,
                     profile: {
@@ -114,6 +142,20 @@ exports.socialLogin = async (req, res) => {
         }
 
         const token = generateToken(user._id);
+
+        // ✅ Send sign-in notification for social login
+        try {
+            const deviceInfo = getDeviceInfo(req);
+            const location = await getLocationFromIP(deviceInfo.ipAddress);
+            
+            await notificationService.sendSignInNotification(user._id, {
+                ...deviceInfo,
+                location,
+                loginMethod: `${provider} OAuth` // Show which social provider was used
+            });
+        } catch (notifError) {
+            console.error('Social login notification error:', notifError.message);
+        }
 
         res.json({
             success: true,
@@ -142,6 +184,20 @@ exports.verifyEmail = async (req, res) => {
         user.verificationToken = undefined;
         await user.save();
 
+        // ✅ Send email verified notification
+        try {
+            await notificationService.createNotification(user._id, {
+                type: 'system',
+                title: '✅ Email Verified!',
+                body: 'Your email has been successfully verified. You now have full access to all features.',
+                actions: [
+                    { actionType: 'view', label: 'Explore Features' }
+                ]
+            });
+        } catch (notifError) {
+            console.error('Email verification notification error:', notifError.message);
+        }
+
         res.json({ success: true, message: 'Email verified successfully' });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -161,6 +217,20 @@ exports.forgotPassword = async (req, res) => {
         user.resetPasswordToken = resetToken;
         user.resetPasswordExpires = Date.now() + 3600000;
         await user.save();
+
+        // ✅ Send password reset notification
+        try {
+            await notificationService.createNotification(user._id, {
+                type: 'security_alert',
+                title: '🔐 Password Reset Requested',
+                body: 'A password reset was requested for your account. If this wasn\'t you, please secure your account immediately.',
+                actions: [
+                    { actionType: 'view', label: 'View Details' }
+                ]
+            });
+        } catch (notifError) {
+            console.error('Password reset notification error:', notifError.message);
+        }
 
         res.json({ success: true, message: 'Reset link sent to email', resetToken });
     } catch (error) {
@@ -185,6 +255,20 @@ exports.resetPassword = async (req, res) => {
         user.resetPasswordToken = undefined;
         user.resetPasswordExpires = undefined;
         await user.save();
+
+        // ✅ Send password changed notification
+        try {
+            await notificationService.createNotification(user._id, {
+                type: 'security_alert',
+                title: '✅ Password Changed Successfully',
+                body: 'Your password has been changed. If you didn\'t make this change, please contact support immediately.',
+                actions: [
+                    { actionType: 'view', label: 'Review Activity' }
+                ]
+            });
+        } catch (notifError) {
+            console.error('Password changed notification error:', notifError.message);
+        }
 
         res.json({ success: true, message: 'Password reset successfully' });
     } catch (error) {

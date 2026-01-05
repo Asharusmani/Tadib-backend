@@ -1,3 +1,4 @@
+// services/notification.service.js
 const Notification = require('../models/notification.model');
 const axios = require('axios');
 
@@ -9,6 +10,38 @@ class NotificationService {
     });
     
     return notification;
+  }
+
+  // ✅ NEW: Sign-in notification with device info
+  async sendSignInNotification(userId, loginDetails) {
+    const { device, browser, os, ipAddress, location, loginMethod } = loginDetails;
+    
+    // Device emoji based on type
+    const deviceEmoji = device.toLowerCase().includes('mobile') ? '📱' : 
+                       device.toLowerCase().includes('tablet') ? '📱' : '💻';
+    
+    // Location display
+    const locationText = location ? ` from ${location}` : '';
+    
+    // Login method (for social login)
+    const methodText = loginMethod ? ` via ${loginMethod}` : '';
+    
+    await this.createNotification(userId, {
+      type: 'security_alert',
+      title: `${deviceEmoji} New Sign-in Detected`,
+      body: `Your account was accessed on ${device} using ${browser}${locationText}${methodText}`,
+      securityMetadata: {
+        deviceInfo: device,
+        browser: browser,
+        os: os,
+        ipAddress: ipAddress,
+        location: location,
+        loginTime: new Date()
+      },
+      actions: [
+        { actionType: 'view', label: 'View Details' }
+      ]
+    });
   }
 
   async scheduleHabitReminder(habit) {
