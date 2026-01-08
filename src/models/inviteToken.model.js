@@ -1,5 +1,5 @@
 // ============================================
-// FILE: models/inviteToken.model.js (NEW)
+// FILE: models/inviteToken.model.js (FIXED)
 // ============================================
 const mongoose = require('mongoose');
 const crypto = require('crypto');
@@ -8,7 +8,7 @@ const inviteTokenSchema = new mongoose.Schema({
   token: { 
     type: String, 
     required: true, 
-    unique: true,
+    unique: true,  // ✅ This already creates an index - no need for manual index
     default: () => crypto.randomBytes(32).toString('hex')
   },
   
@@ -54,9 +54,11 @@ const inviteTokenSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for faster queries
-inviteTokenSchema.index({ token: 1 });
+// ✅ FIXED: Removed duplicate index on token (line 58)
+// inviteTokenSchema.index({ token: 1 }); // ❌ DELETED THIS LINE
+
+// ✅ Keep other useful compound indexes
 inviteTokenSchema.index({ invitedEmail: 1, habitId: 1 });
-inviteTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // Auto-delete expired
+inviteTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // Auto-delete expired tokens
 
 module.exports = mongoose.model('InviteToken', inviteTokenSchema);

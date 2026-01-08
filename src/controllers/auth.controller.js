@@ -33,19 +33,17 @@ exports.register = async (req, res) => {
 
         const token = generateToken(user._id);
 
-        // ✅ Send welcome notification after registration
-        try {
-            await notificationService.createNotification(user._id, {
-                type: 'system',
-                title: '🎉 Welcome to Tadib!',
-                body: 'Start building better habits and earning rewards today!',
-                actions: [
-                    { actionType: 'view', label: 'Get Started' }
-                ]
-            });
-        } catch (notifError) {
-            console.error('Welcome notification error:', notifError.message);
-        }
+        // ✅ Send welcome notification (fire and forget - don't block response)
+        notificationService.createNotification(user._id, {
+            type: 'system',
+            title: '🎉 Welcome to Tadib!',
+            body: 'Start building better habits and earning rewards today!',
+            actions: [
+                { actionType: 'view', label: 'Get Started' }
+            ]
+        }).catch(err => {
+            console.error('Welcome notification error:', err.message);
+        });
 
         res.status(201).json({
             success: true,
@@ -85,18 +83,20 @@ exports.login = async (req, res) => {
 
         const token = generateToken(user._id);
 
-        // ✅ NEW: Send sign-in notification
-        try {
-            const deviceInfo = getDeviceInfo(req);
-            const location = await getLocationFromIP(deviceInfo.ipAddress);
-            
-            await notificationService.sendSignInNotification(user._id, {
-                ...deviceInfo,
-                location
-            });
-        } catch (notifError) {
-            console.error('Sign-in notification error:', notifError.message);
-        }
+        // ✅ Send sign-in notification (fire and forget - don't block response)
+        (async () => {
+            try {
+                const deviceInfo = getDeviceInfo(req);
+                const location = await getLocationFromIP(deviceInfo.ipAddress);
+                
+                await notificationService.sendSignInNotification(user._id, {
+                    ...deviceInfo,
+                    location
+                });
+            } catch (notifError) {
+                console.error('Sign-in notification error:', notifError.message);
+            }
+        })();
 
         res.json({
             success: true,
@@ -110,6 +110,7 @@ exports.login = async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('Login error:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -143,19 +144,21 @@ exports.socialLogin = async (req, res) => {
 
         const token = generateToken(user._id);
 
-        // ✅ Send sign-in notification for social login
-        try {
-            const deviceInfo = getDeviceInfo(req);
-            const location = await getLocationFromIP(deviceInfo.ipAddress);
-            
-            await notificationService.sendSignInNotification(user._id, {
-                ...deviceInfo,
-                location,
-                loginMethod: `${provider} OAuth` // Show which social provider was used
-            });
-        } catch (notifError) {
-            console.error('Social login notification error:', notifError.message);
-        }
+        // ✅ Send sign-in notification for social login (fire and forget)
+        (async () => {
+            try {
+                const deviceInfo = getDeviceInfo(req);
+                const location = await getLocationFromIP(deviceInfo.ipAddress);
+                
+                await notificationService.sendSignInNotification(user._id, {
+                    ...deviceInfo,
+                    location,
+                    loginMethod: `${provider} OAuth`
+                });
+            } catch (notifError) {
+                console.error('Social login notification error:', notifError.message);
+            }
+        })();
 
         res.json({
             success: true,
@@ -167,6 +170,7 @@ exports.socialLogin = async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('Social login error:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -184,22 +188,21 @@ exports.verifyEmail = async (req, res) => {
         user.verificationToken = undefined;
         await user.save();
 
-        // ✅ Send email verified notification
-        try {
-            await notificationService.createNotification(user._id, {
-                type: 'system',
-                title: '✅ Email Verified!',
-                body: 'Your email has been successfully verified. You now have full access to all features.',
-                actions: [
-                    { actionType: 'view', label: 'Explore Features' }
-                ]
-            });
-        } catch (notifError) {
-            console.error('Email verification notification error:', notifError.message);
-        }
+        // ✅ Send email verified notification (fire and forget)
+        notificationService.createNotification(user._id, {
+            type: 'system',
+            title: '✅ Email Verified!',
+            body: 'Your email has been successfully verified. You now have full access to all features.',
+            actions: [
+                { actionType: 'view', label: 'Explore Features' }
+            ]
+        }).catch(err => {
+            console.error('Email verification notification error:', err.message);
+        });
 
         res.json({ success: true, message: 'Email verified successfully' });
     } catch (error) {
+        console.error('Verify email error:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -218,22 +221,21 @@ exports.forgotPassword = async (req, res) => {
         user.resetPasswordExpires = Date.now() + 3600000;
         await user.save();
 
-        // ✅ Send password reset notification
-        try {
-            await notificationService.createNotification(user._id, {
-                type: 'security_alert',
-                title: '🔐 Password Reset Requested',
-                body: 'A password reset was requested for your account. If this wasn\'t you, please secure your account immediately.',
-                actions: [
-                    { actionType: 'view', label: 'View Details' }
-                ]
-            });
-        } catch (notifError) {
-            console.error('Password reset notification error:', notifError.message);
-        }
+        // ✅ Send password reset notification (fire and forget)
+        notificationService.createNotification(user._id, {
+            type: 'security_alert',
+            title: '🔐 Password Reset Requested',
+            body: 'A password reset was requested for your account. If this wasn\'t you, please secure your account immediately.',
+            actions: [
+                { actionType: 'view', label: 'View Details' }
+            ]
+        }).catch(err => {
+            console.error('Password reset notification error:', err.message);
+        });
 
         res.json({ success: true, message: 'Reset link sent to email', resetToken });
     } catch (error) {
+        console.error('Forgot password error:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -256,22 +258,21 @@ exports.resetPassword = async (req, res) => {
         user.resetPasswordExpires = undefined;
         await user.save();
 
-        // ✅ Send password changed notification
-        try {
-            await notificationService.createNotification(user._id, {
-                type: 'security_alert',
-                title: '✅ Password Changed Successfully',
-                body: 'Your password has been changed. If you didn\'t make this change, please contact support immediately.',
-                actions: [
-                    { actionType: 'view', label: 'Review Activity' }
-                ]
-            });
-        } catch (notifError) {
-            console.error('Password changed notification error:', notifError.message);
-        }
+        // ✅ Send password changed notification (fire and forget)
+        notificationService.createNotification(user._id, {
+            type: 'security_alert',
+            title: '✅ Password Changed Successfully',
+            body: 'Your password has been changed. If you didn\'t make this change, please contact support immediately.',
+            actions: [
+                { actionType: 'view', label: 'Review Activity' }
+            ]
+        }).catch(err => {
+            console.error('Password changed notification error:', err.message);
+        });
 
         res.json({ success: true, message: 'Password reset successfully' });
     } catch (error) {
+        console.error('Reset password error:', error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -285,6 +286,7 @@ exports.refreshToken = async (req, res) => {
 
         res.json({ success: true, token: newToken });
     } catch (error) {
+        console.error('Refresh token error:', error);
         res.status(401).json({ error: 'Invalid token' });
     }
 };
@@ -312,6 +314,7 @@ exports.resendVerification = async (req, res) => {
 
         res.json({ success: true, message: 'Verification email sent' });
     } catch (error) {
+        console.error('Resend verification error:', error);
         res.status(500).json({ error: error.message });
     }
 };
