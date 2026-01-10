@@ -13,24 +13,67 @@ if (!fs.existsSync(uploadsDir)) {
 // Configure storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
+    console.log('📂 Multer destination called');
     cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
-    // Generate unique filename: userId-timestamp.extension
+    console.log('\n🔍 === MULTER FILENAME GENERATION ===');
+    console.log('📋 req.userId:', req.userId);
+    console.log('📋 req.user:', req.user);
+    console.log('📋 file.originalname:', file.originalname);
+    console.log('📋 file.mimetype:', file.mimetype);
+    
+    // ✅ CRITICAL FIX: Ensure userId exists
+    let userId = req.userId || req.user?.userId || req.user?._id;
+    
+    // Convert ObjectId to string if needed
+    if (userId && typeof userId === 'object' && userId.toString) {
+      userId = userId.toString();
+    }
+    
+    // Fallback to 'user' if still undefined
+    if (!userId) {
+      console.error('❌ CRITICAL: No userId available in request!');
+      console.error('📋 req keys:', Object.keys(req));
+      userId = 'user-' + Date.now();
+    }
+    
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `avatar-${req.userId}-${uniqueSuffix}${ext}`);
+    const ext = path.extname(file.originalname) || '.jpg';
+    
+    const filename = `avatar-${userId}-${uniqueSuffix}${ext}`;
+    
+    console.log('✅ Generated filename:', filename);
+    console.log('=== MULTER FILENAME GENERATION END ===\n');
+    
+    cb(null, filename);
   }
 });
 
 // File filter - only images
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  console.log('🔍 File filter check:', {
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+    fieldname: file.fieldname,
+  });
+
+  const allowedTypes = [
+    'image/jpeg', 
+    'image/jpg', 
+    'image/png', 
+    'image/gif', 
+    'image/webp', 
+    'image/heic',
+    'image/heif'
+  ];
   
   if (allowedTypes.includes(file.mimetype)) {
+    console.log('✅ File type accepted');
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.'), false);
+    console.log('❌ File type rejected:', file.mimetype);
+    cb(new Error(`Invalid file type: ${file.mimetype}. Only JPEG, PNG, GIF, HEIC and WebP are allowed.`), false);
   }
 };
 
@@ -39,7 +82,8 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+    files: 1
   }
 });
 
@@ -61,7 +105,14 @@ const deleteFile = (filePath) => {
 const getFileUrl = (filename, req) => {
   const protocol = req.protocol;
   const host = req.get('host');
-  return `${protocol}://${host}/uploads/avatars/${filename}`;
+  const url = `${protocol}://${host}/uploads/avatars/${filename}`;
+  
+  console.log('🔗 Generated file URL:', {
+    filename: filename,
+    url: url
+  });
+  
+  return url;
 };
 
 module.exports = {

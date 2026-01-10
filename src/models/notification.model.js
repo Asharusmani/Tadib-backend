@@ -21,7 +21,12 @@ const notificationSchema = new mongoose.Schema({
       'achievement', 
       'quranic_verse', 
       'system',
-      'security_alert'  // ✅ NEW: Security notifications
+      'security_alert' , // ✅ NEW: Security notifications
+
+      // ✅ ADD THESE
+    'habit_invitation',
+    'streak_milestone',
+    'streak_broken'
     ],
     required: true
   },
@@ -30,12 +35,13 @@ const notificationSchema = new mongoose.Schema({
   body: String,
   
   relatedEntity: {
-    entityType: { type: String, enum: ['habit', 'group', 'challenge', 'badge'] },
+    entityType: { type: String, enum: ['habit', 'group', 'challenge', 'badge','shared_habit', ] },
     entityId: mongoose.Schema.Types.ObjectId
   },
   
   actions: [{
-    actionType: { type: String, enum: ['complete', 'snooze', 'decline', 'view'] },
+    actionType: { type: String, enum: ['complete', 'snooze', 'decline', 'view', 'accept',   // ✅ ADD
+      'reject'] },
     label: String
   }],
   

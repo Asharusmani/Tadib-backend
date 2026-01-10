@@ -91,7 +91,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/habits', habitRoutes);
 app.use('/api/users', userRoutes); 
 app.use('/api/notifications', notificationRoutes);
-app.use('/api/sharedHabits', sharedHabitRoutes);
+app.use('/api/shared-habits', sharedHabitRoutes);
 
 // ========================================
 // HEALTH CHECK

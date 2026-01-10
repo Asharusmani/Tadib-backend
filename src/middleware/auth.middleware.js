@@ -191,8 +191,17 @@ const authorize = (...roles) => {
 
 /**
  * Pro subscription check middleware
+ * ✅ DISABLED - All users have access to "Pro" features
+ * To enable: Set REQUIRE_PRO_SUBSCRIPTION=true in .env
  */
 const isPro = async (req, res, next) => {
+  // ✅ CHECK: If pro subscription is disabled globally
+  if (process.env.REQUIRE_PRO_SUBSCRIPTION !== 'true') {
+    logger.debug('Pro check bypassed - REQUIRE_PRO_SUBSCRIPTION not enabled');
+    return next(); // Everyone has access
+  }
+
+  // Original Pro check (only runs if explicitly enabled)
   if (!req.user) {
     return res.status(401).json({ 
       success: false, 
@@ -210,11 +219,34 @@ const isPro = async (req, res, next) => {
   next();
 };
 
-logger.info('Auth middleware loaded');
+/**
+ * Admin access middleware
+ */
+const isAdmin = async (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Authentication required' 
+    });
+  }
+  
+  if (req.user.role !== 'admin') {
+    logger.debug('Admin access denied', { role: req.user.role });
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Admin access required' 
+    });
+  }
+  
+  next();
+};
+
+logger.info('Auth middleware loaded - Pro features available to all users');
 
 module.exports = {
   authenticate,
   optionalAuthenticate,
   authorize,
-  isPro
+  isPro,
+  isAdmin
 };

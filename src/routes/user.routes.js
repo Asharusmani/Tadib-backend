@@ -1,67 +1,88 @@
-// routes/user.routes.js
+// routes/user.routes.js - PRODUCTION READY
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/user.controller');
 const { authenticate } = require('../middleware/auth.middleware');
-const upload = require('../middleware/upload.middleware');
-
-// ✅ All routes require authentication
-router.use(authenticate);
+const { upload } = require('../config/upload');
 
 // ============================================
 // PROFILE ROUTES
 // ============================================
 
-// Get user profile
-router.get('/profile', userController.getUserProfile);
+router.get('/profile', authenticate, userController.getUserProfile);
+router.put('/profile', authenticate, userController.updateProfile);
 
-// Update user profile
-router.put('/profile', userController.updateProfile);
+// ✅ Avatar upload - OPTIMIZED ORDER
+router.post(
+  '/profile/avatar',
+  authenticate,              // Sets req.userId
+  upload.single('avatar'),   // Processes file
+  userController.uploadAvatar
+);
 
-// Upload profile avatar
-router.post('/profile/avatar', upload.single('avatar'), userController.uploadAvatar);
-
-// Delete profile avatar
-router.delete('/profile/avatar', userController.deleteAvatar);
-
-// ============================================
-// STATS ROUTES
-// ============================================
-
-// Get user stats (streaks, points, habits count)
-router.get('/stats', userController.getUserStats);
+router.delete('/profile/avatar', authenticate, userController.deleteAvatar);
 
 // ============================================
-// ACHIEVEMENTS ROUTES
+// STATS & ACHIEVEMENTS
 // ============================================
 
-// Get user achievements and badges
-router.get('/achievements', userController.getUserAchievements);
+router.get('/stats', authenticate, userController.getUserStats);
+router.get('/achievements', authenticate, userController.getUserAchievements);
 
 // ============================================
-// SETTINGS ROUTES
+// SETTINGS
 // ============================================
 
-// Update user settings
-router.put('/settings', userController.updateSettings);
-
-// Update notification preferences
-router.put('/settings/notifications', userController.updateNotificationSettings);
-
-// Update privacy settings
-router.put('/settings/privacy', userController.updatePrivacySettings);
+router.put('/settings', authenticate, userController.updateSettings);
+router.put('/settings/notifications', authenticate, userController.updateNotificationSettings);
+router.put('/settings/privacy', authenticate, userController.updatePrivacySettings);
 
 // ============================================
 // ACCOUNT MANAGEMENT
 // ============================================
 
-// Change password
-router.post('/change-password', userController.changePassword);
+router.post('/change-password', authenticate, userController.changePassword);
+router.delete('/account', authenticate, userController.deleteAccount);
+router.post('/account/deactivate', authenticate, userController.deactivateAccount);
+router.post('/account/reactivate', authenticate, userController.reactivateAccount);
 
-// Delete account
-router.delete('/account', userController.deleteAccount);
+// ============================================
+// PUBLIC
+// ============================================
 
-// Deactivate account
-router.post('/account/deactivate', userController.deactivateAccount);
+router.get('/public/:userId', userController.getPublicProfile);
+
+// ============================================
+// PRO FEATURES
+// ============================================
+
+router.get('/pro/features', authenticate, userController.getProFeatures);
+router.get('/pro/analytics', authenticate, userController.getProAnalytics);
+
+// ============================================
+// ERROR HANDLER
+// ============================================
+router.use((error, req, res, next) => {
+  console.error('User routes error:', error.message);
+  
+  if (error.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({
+      success: false,
+      message: 'File too large. Maximum size is 5MB.'
+    });
+  }
+  
+  if (error.message?.includes('Invalid file type')) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+  
+  res.status(error.status || 500).json({
+    success: false,
+    message: error.message || 'An error occurred'
+  });
+});
 
 module.exports = router;

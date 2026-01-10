@@ -98,6 +98,120 @@ class NotificationService {
     }
   }
 
+  // ✅✅✅ NEW: SHARED HABIT NOTIFICATIONS
+  
+  /**
+   * Send invitation notification to invitee
+   */
+  async sendHabitInvitation(inviteeId, inviterName, habitTitle, habitId) {
+    await this.createNotification(inviteeId, {
+      type: 'habit_invitation',
+      title: `Habit Invitation from ${inviterName}`,
+      body: `${inviterName} invited you to join "${habitTitle}" habit. Accept to start tracking together!`,
+      relatedEntity: {
+        entityType: 'shared_habit',
+        entityId: habitId
+      },
+      actions: [
+        { actionType: 'accept', label: 'Accept' },
+        { actionType: 'reject', label: 'Decline' }
+      ]
+    });
+  }
+
+  /**
+   * Notify creator when someone accepts invitation
+   */
+  async notifyInvitationAccepted(creatorId, accepterName, habitTitle, habitId) {
+    await this.createNotification(creatorId, {
+      type: 'habit_invitation',
+      title: '✅ Invitation Accepted',
+      body: `${accepterName} accepted your invitation to join "${habitTitle}" habit!`,
+      relatedEntity: {
+        entityType: 'shared_habit',
+        entityId: habitId
+      }
+    });
+  }
+
+  /**
+   * Notify creator when someone declines invitation
+   */
+  async notifyInvitationDeclined(creatorId, declinerName, habitTitle, habitId) {
+    await this.createNotification(creatorId, {
+      type: 'habit_invitation',
+      title: '❌ Invitation Declined',
+      body: `${declinerName} declined your invitation to join "${habitTitle}" habit.`,
+      relatedEntity: {
+        entityType: 'shared_habit',
+        entityId: habitId
+      }
+    });
+  }
+
+  /**
+   * Notify all participants when streak milestone is reached
+   */
+  async notifyStreakMilestone(participantIds, habitTitle, streakCount, habitId) {
+    const notifications = participantIds.map(userId => ({
+      userId,
+      type: 'streak_milestone',
+      title: 'Streak Milestone! 🔥',
+      body: `Streak ${streakCount}! Everyone completed "${habitTitle}" today!`,
+      relatedEntity: {
+        entityType: 'shared_habit',
+        entityId: habitId
+      },
+      isRead: false,
+      isDelivered: true,
+      sentAt: new Date()
+    }));
+    
+    await Notification.insertMany(notifications);
+  }
+
+  /**
+   * Notify remaining participants when someone completes
+   */
+  async notifyPendingParticipants(participantIds, completedByName, habitTitle, habitId) {
+    const notifications = participantIds.map(userId => ({
+      userId,
+      type: 'task_reminder',
+      title: 'Reminder ⏰',
+      body: `${completedByName} completed "${habitTitle}". Don't break the streak!`,
+      relatedEntity: {
+        entityType: 'shared_habit',
+        entityId: habitId
+      },
+      isRead: false,
+      isDelivered: true,
+      sentAt: new Date()
+    }));
+    
+    await Notification.insertMany(notifications);
+  }
+
+  /**
+   * Notify all participants when streak is broken
+   */
+  async notifyStreakBroken(participantIds, habitTitle, habitId) {
+    const notifications = participantIds.map(userId => ({
+      userId,
+      type: 'streak_broken',
+      title: 'Streak Broken 💔',
+      body: `Streak broken for "${habitTitle}". Not everyone completed yesterday.`,
+      relatedEntity: {
+        entityType: 'shared_habit',
+        entityId: habitId
+      },
+      isRead: false,
+      isDelivered: true,
+      sentAt: new Date()
+    }));
+    
+    await Notification.insertMany(notifications);
+  }
+
   async broadcastNotification(data) {
     const User = require('../models/user.model');
     const users = await User.find({ accountStatus: 'active' });

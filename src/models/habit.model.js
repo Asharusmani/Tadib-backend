@@ -125,19 +125,44 @@ const habitSchema = new mongoose.Schema({
 });
 
 // ========================================
-// ✅ ONLY ONE PRE-SAVE HOOK (ASYNC VERSION)
+// ✅ FIXED PRE-SAVE HOOK - Properly calculate endDate with reminderTime
 // ========================================
 habitSchema.pre('save', async function() {
   // Calculate dates for new habits or when frequency changes
-  if (this.isNew || this.isModified('frequency')) {
+  if (this.isNew || this.isModified('frequency') || this.isModified('reminderTime')) {
     const daysToAdd = FREQUENCY_DURATION[this.frequency] || 1;
     
     if (!this.startDate) {
       this.startDate = new Date();
     }
     
+    // ✅ Parse reminder time (format: "16:00" or "4:00 PM")
+    const parseReminderTime = (timeStr) => {
+      // Handle "HH:mm" format
+      const match = timeStr.match(/(\d{1,2}):(\d{2})/);
+      if (match) {
+        let hours = parseInt(match[1]);
+        const minutes = parseInt(match[2]);
+        
+        // Handle PM/AM if present
+        if (timeStr.toLowerCase().includes('pm') && hours !== 12) {
+          hours += 12;
+        } else if (timeStr.toLowerCase().includes('am') && hours === 12) {
+          hours = 0;
+        }
+        
+        return { hours, minutes };
+      }
+      return { hours: 23, minutes: 59 }; // Default to end of day
+    };
+    
+    const { hours, minutes } = parseReminderTime(this.reminderTime);
+    
+    // ✅ Calculate endDate = startDate + durationDays + reminderTime
     const endDate = new Date(this.startDate);
     endDate.setDate(endDate.getDate() + daysToAdd);
+    endDate.setHours(hours, minutes, 0, 0);
+    
     this.endDate = endDate;
     this.durationDays = daysToAdd;
     
@@ -145,11 +170,11 @@ habitSchema.pre('save', async function() {
       name: this.name,
       frequency: this.frequency,
       duration: daysToAdd,
+      reminderTime: this.reminderTime,
       start: this.startDate.toISOString(),
       end: this.endDate.toISOString()
     });
   }
-  // No next() needed with async function
 });
 
 // ========================================
@@ -165,7 +190,8 @@ habitSchema.index({ userId: 1, endDate: 1 });
 // ========================================
 habitSchema.virtual('isExpired').get(function() {
   if (!this.endDate) return false;
-  return new Date() > this.endDate;
+  const now = new Date();
+  return now > this.endDate;
 });
 
 habitSchema.virtual('completedToday').get(function() {

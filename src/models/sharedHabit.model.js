@@ -1,15 +1,24 @@
 // ============================================
-// FILE: models/sharedHabit.model.js (FIXED)
+// FILE: models/sharedHabit.model.js
+// UPDATE ONLY THE CATEGORY ENUM
 // ============================================
+
 const mongoose = require('mongoose');
 
 const sharedHabitSchema = new mongoose.Schema({
-  title: { type: String, required: true },
+  title: { 
+    type: String, 
+    required: true 
+  },
+  
   description: String,
+  
+  // ✅ FIXED: Updated enum to include all categories
   category: { 
     type: String, 
     enum: ['spiritual', 'health', 'learning', 'discipline', 'custom'],
-    default: 'custom'
+    default: 'custom',
+    required: true
   },
   
   // Creator of shared habit
@@ -19,17 +28,28 @@ const sharedHabitSchema = new mongoose.Schema({
     required: true 
   },
   
-  // All participants
+  // All participants (MUST include email for invite system)
   participants: [{
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    email: { type: String, required: true },
+    userId: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: 'User' 
+    },
+    email: { 
+      type: String, 
+      required: true,
+      lowercase: true,
+      trim: true
+    },
     status: { 
       type: String, 
       enum: ['pending', 'accepted', 'declined'], 
       default: 'pending' 
     },
     joinedAt: Date,
-    invitedAt: { type: Date, default: Date.now }
+    invitedAt: { 
+      type: Date, 
+      default: Date.now 
+    }
   }],
   
   // Shared Streak Info
@@ -42,42 +62,96 @@ const sharedHabitSchema = new mongoose.Schema({
   
   // Daily completion tracking
   dailyCompletions: [{
-    date: { type: Date, required: true },
+    date: { 
+      type: Date, 
+      required: true 
+    },
     completedBy: [{
-      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      completedAt: { type: Date, default: Date.now }
+      userId: { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'User' 
+      },
+      completedAt: { 
+        type: Date, 
+        default: Date.now 
+      }
     }],
-    allCompleted: { type: Boolean, default: false },
-    missedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-    countedAsDay: { type: Boolean, default: false } // 🔧 FIX: Track if day already counted
+    allCompleted: { 
+      type: Boolean, 
+      default: false 
+    },
+    missedBy: [{ 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: 'User' 
+    }],
+    countedAsDay: { 
+      type: Boolean, 
+      default: false 
+    }
   }],
   
   // Streak Rules
   rules: {
-    requireAllParticipants: { type: Boolean, default: true },
+    requireAllParticipants: { 
+      type: Boolean, 
+      default: true 
+    },
     deadline: String, // e.g., "23:59"
-    allowPartialCredit: { type: Boolean, default: false },
-    minimumCompletionPercentage: { type: Number, default: 100 }
+    allowPartialCredit: { 
+      type: Boolean, 
+      default: false 
+    },
+    minimumCompletionPercentage: { 
+      type: Number, 
+      default: 100 
+    }
   },
   
   // Notifications
   notifications: {
-    reminderEnabled: { type: Boolean, default: true },
+    reminderEnabled: { 
+      type: Boolean, 
+      default: true 
+    },
     reminderTime: String,
-    notifyOnStreak: { type: Boolean, default: true },
-    notifyOnBreak: { type: Boolean, default: true }
+    notifyOnStreak: { 
+      type: Boolean, 
+      default: true 
+    },
+    notifyOnBreak: { 
+      type: Boolean, 
+      default: true 
+    }
   },
   
   // Stats
   stats: {
-    totalDays: { type: Number, default: 0 }, // Total unique days
-    successfulDays: { type: Number, default: 0 }, // Days when all completed
-    failedDays: { type: Number, default: 0 }, // Days when not all completed
-    successRate: { type: Number, default: 0 },
-    totalPoints: { type: Number, default: 0 }
+    totalDays: { 
+      type: Number, 
+      default: 0 
+    },
+    successfulDays: { 
+      type: Number, 
+      default: 0 
+    },
+    failedDays: { 
+      type: Number, 
+      default: 0 
+    },
+    successRate: { 
+      type: Number, 
+      default: 0 
+    },
+    totalPoints: { 
+      type: Number, 
+      default: 0 
+    }
   },
   
-  isActive: { type: Boolean, default: true },
+  isActive: { 
+    type: Boolean, 
+    default: true 
+  },
   
 }, {
   timestamps: true
@@ -86,8 +160,36 @@ const sharedHabitSchema = new mongoose.Schema({
 // Calculate success rate before saving
 sharedHabitSchema.pre('save', async function () {
   if (this.stats.totalDays > 0) {
-    this.stats.successRate = Math.round((this.stats.successfulDays / this.stats.totalDays) * 100);
+    this.stats.successRate = Math.round(
+      (this.stats.successfulDays / this.stats.totalDays) * 100
+    );
   }
 });
+
+// Virtual to check if habit is expired
+sharedHabitSchema.virtual('isExpired').get(function() {
+  return this.endDate && new Date() > this.endDate;
+});
+
+// Method to check if user is participant
+sharedHabitSchema.methods.isParticipant = function(userId) {
+  return this.participants.some(
+    p => p.userId && p.userId.toString() === userId.toString() && p.status === 'accepted'
+  );
+};
+
+// Method to get participant by userId
+sharedHabitSchema.methods.getParticipant = function(userId) {
+  return this.participants.find(
+    p => p.userId && p.userId.toString() === userId.toString()
+  );
+};
+
+// Method to get participant by email
+sharedHabitSchema.methods.getParticipantByEmail = function(email) {
+  return this.participants.find(
+    p => p.email.toLowerCase() === email.toLowerCase()
+  );
+};
 
 module.exports = mongoose.model('SharedHabit', sharedHabitSchema);

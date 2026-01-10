@@ -79,50 +79,155 @@ exports.updateProfile = async (req, res) => {
 // ============================================
 // UPLOAD PROFILE AVATAR (LOCAL STORAGE)
 // ============================================
+// controllers/user.controller.js
+// Replace ONLY the uploadAvatar function with this:
+
+// ============================================
+// UPLOAD PROFILE AVATAR (FIXED WITH DETAILED LOGGING)
+// ============================================
+// controllers/user.controller.js - uploadAvatar function ONLY
+// Replace your existing uploadAvatar function with this:
+
 exports.uploadAvatar = async (req, res) => {
   try {
+    console.log('\n========== AVATAR UPLOAD START ==========');
+    console.log('📤 Avatar upload request received');
+    console.log('👤 User ID from middleware:', req.userId);
+    console.log('👤 User object:', req.user);
+    console.log('📁 File object:', {
+      hasFile: !!req.file,
+      fieldname: req.file?.fieldname,
+      originalname: req.file?.originalname,
+      filename: req.file?.filename,
+      mimetype: req.file?.mimetype,
+      size: req.file?.size,
+      path: req.file?.path
+    });
+
+    // ✅ Check 1: File exists
     if (!req.file) {
+      console.log('❌ No file in request');
       return res.status(400).json({
         success: false,
         message: 'No image file provided'
       });
     }
 
+    // ✅ Check 2: Filename is valid
+    if (!req.file.filename || req.file.filename === 'undefined' || req.file.filename.includes('undefined')) {
+      console.error('❌ CRITICAL ERROR: Invalid filename detected!');
+      console.error('📋 Full req.file:', JSON.stringify(req.file, null, 2));
+      console.error('📋 req.userId:', req.userId);
+      console.error('📋 req.user:', req.user);
+      
+      // Clean up the uploaded file
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+        console.log('🗑️ Cleaned up invalid file');
+      }
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to generate valid filename. Check server logs for details.'
+      });
+    }
+
+    console.log('✅ File received with valid filename:', req.file.filename);
+
+    // ✅ Check 3: User exists
     const user = await User.findById(req.userId);
     if (!user) {
+      console.log('❌ User not found:', req.userId);
+      
+      // Delete uploaded file since user not found
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
 
-    // Delete old avatar file if exists
+    console.log('👤 User found:', {
+      id: user._id,
+      name: user.profile?.name,
+      email: user.email,
+      currentAvatar: user.profile?.avatar
+    });
+
+    // ✅ Delete old avatar file if exists
     if (user.profile.avatar) {
       try {
         const oldFilename = path.basename(user.profile.avatar);
-        const oldFilePath = path.join(__dirname, '../uploads/avatars', oldFilename);
-        await deleteFile(oldFilePath);
+        
+        // Skip if old avatar is 'undefined'
+        if (oldFilename !== 'undefined') {
+          const oldFilePath = path.join(__dirname, '../uploads/avatars', oldFilename);
+          
+          console.log('🗑️ Deleting old avatar:', {
+            filename: oldFilename,
+            path: oldFilePath,
+            exists: fs.existsSync(oldFilePath)
+          });
+          
+          if (fs.existsSync(oldFilePath)) {
+            await deleteFile(oldFilePath);
+            console.log('✅ Old avatar deleted');
+          }
+        } else {
+          console.log('⚠️ Skipping deletion of invalid old avatar');
+        }
       } catch (deleteError) {
-        console.warn('Failed to delete old avatar:', deleteError.message);
+        console.warn('⚠️ Failed to delete old avatar:', deleteError.message);
+        // Continue anyway - not critical
       }
     }
 
-    // Generate new avatar URL
+    // ✅ Generate new avatar URL
     const avatarUrl = getFileUrl(req.file.filename, req);
 
-    // Update user avatar
+    console.log('🔗 Generated avatar URL:', avatarUrl);
+
+    // ✅ Update user avatar
     user.profile.avatar = avatarUrl;
     await user.save();
 
-    res.json({
+    console.log('✅ User profile updated with new avatar');
+    console.log('========== AVATAR UPLOAD SUCCESS ==========\n');
+
+    // ✅ Send success response
+    res.status(200).json({
       success: true,
       message: 'Avatar uploaded successfully',
       data: {
-        avatar: avatarUrl
+        avatar: avatarUrl,
+        user: {
+          id: user._id,
+          name: user.profile?.name,
+          email: user.email,
+          avatar: user.profile.avatar
+        }
       }
     });
   } catch (error) {
-    console.error('Upload avatar error:', error);
+    console.error('========== AVATAR UPLOAD ERROR ==========');
+    console.error('❌ Upload avatar error:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Delete uploaded file on error
+    if (req.file && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+        console.log('🗑️ Cleaned up uploaded file after error');
+      } catch (unlinkError) {
+        console.error('Failed to cleanup file:', unlinkError);
+      }
+    }
+    
+    console.error('========== AVATAR UPLOAD ERROR END ==========\n');
+    
     res.status(500).json({
       success: false,
       message: 'Failed to upload avatar',

@@ -1,5 +1,5 @@
 // ============================================
-// FILE: routes/sharedHabit.routes.js (UPDATED)
+// FILE: routes/sharedHabit.routes.js (FIXED)
 // ============================================
 const express = require('express');
 const router = express.Router();
@@ -8,19 +8,27 @@ const authMiddleware = require('../middleware/auth.middleware');
 
 const authenticate = authMiddleware.authenticate;
 
+// ========================================
+// PUBLIC ROUTES (No Auth)
+// ========================================
+
+// ✅ Verify invite token (public - no auth needed)
+router.get('/invite/:token/verify', sharedHabitController.verifyInviteToken);
+
+// ========================================
+// PROTECTED ROUTES (Auth Required)
+// ========================================
+
 // Create & Invite
 router.post('/', authenticate, sharedHabitController.createSharedHabit);
 router.post('/:habitId/invite', authenticate, sharedHabitController.inviteParticipant);
 
-// ✅ NEW: Verify invite token (public - no auth needed)
-router.get('/invite/:token/verify', sharedHabitController.verifyInviteToken);
-
-// ✅ NEW: Accept invite after signup
+// ✅ Accept invite after signup (with token)
 router.post('/invite/accept', authenticate, sharedHabitController.acceptInviteAfterSignup);
 
-// Accept/Decline Invitation (in-app)
-router.post('/:habitId/accept', authenticate, sharedHabitController.acceptInvitation);
-router.post('/:habitId/decline', authenticate, sharedHabitController.declineInvitation);
+// ✅ FIXED: Accept/Reject Invitation (in-app, from notification)
+router.patch('/:habitId/accept', authenticate, sharedHabitController.acceptInvitation);
+router.patch('/:habitId/reject', authenticate, sharedHabitController.rejectInvitation);
 
 // Complete Task
 router.post('/:habitId/complete', authenticate, sharedHabitController.completeTask);
@@ -36,6 +44,7 @@ router.get('/:habitId', authenticate, sharedHabitController.getSharedHabitDetail
 router.delete('/:habitId/leave', authenticate, sharedHabitController.leaveSharedHabit);
 router.delete('/:habitId', authenticate, sharedHabitController.deleteSharedHabit);
 
+// Test endpoint
 router.get('/test-email', authenticate, async (req, res) => {
   const MessagingService = require('../services/messaging.service');
   const result = await MessagingService.testEmailConfig();

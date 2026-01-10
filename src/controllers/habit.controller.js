@@ -2,7 +2,7 @@ const Habit = require('../models/habit.model');
 const User = require('../models/user.model');
 const notificationService = require('../services/notification.service');
 
-// ✅ CREATE NEW HABIT - Backend now handles date calculation
+// ✅ CREATE NEW HABIT
 exports.createHabit = async (req, res) => {
   try {
     const habitData = {
@@ -15,8 +15,6 @@ exports.createHabit = async (req, res) => {
       skipDaysAllowed: req.body.skipDaysAllowed || 0,
       frequency: req.body.frequency || 'Daily',
       reminderTime: req.body.reminderTime,
-      // ✅ REMOVED: startDate, endDate, durationDays
-      // These are now calculated automatically in the model's pre-save hook
       streak: 0,
       longestStreak: 0,
       completedDates: [],
@@ -26,10 +24,8 @@ exports.createHabit = async (req, res) => {
       }
     };
 
-    // ✅ The pre-save hook will automatically calculate dates based on frequency
     const habit = await Habit.create(habitData);
 
-    // ✅ CREATE NOTIFICATION when habit is created
     if (habit.reminderTime) {
       await notificationService.createNotification(req.userId, {
         type: 'task_reminder',
@@ -45,7 +41,6 @@ exports.createHabit = async (req, res) => {
     res.status(201).json({ 
       success: true, 
       habit,
-      // ✅ Send calculated dates back to frontend
       message: `Habit created successfully! Duration: ${habit.durationDays} days (${habit.frequency})`
     });
   } catch (error) {
@@ -57,12 +52,11 @@ exports.createHabit = async (req, res) => {
   }
 };
 
-// ✅ GET ALL USER HABITS (with auto streak reset and expiry filtering)
+// ✅ GET ALL USER HABITS - Auto-archive expired habits
 exports.getUserHabits = async (req, res) => {
   try {
     const { status, category, date, includeExpired } = req.query;
     
-    // 🔥 AUTO RESET DAILY STREAK IF MISSED
     const user = await User.findById(req.userId);
 
     if (user?.dailyStreak?.lastCompletedDate) {
@@ -90,14 +84,26 @@ exports.getUserHabits = async (req, res) => {
     if (category) filter.category = category;
     if (status === 'paused') filter.isPaused = true;
 
-    // ✅ Filter out expired habits unless explicitly requested
+    // ✅ CRITICAL: Only show habits that haven't expired yet
     if (!includeExpired) {
-      filter.endDate = { $gte: new Date() };
+      const now = new Date();
+      filter.endDate = { $gte: now };
+      
+      // ✅ Auto-archive expired habits in background
+      Habit.updateMany(
+        {
+          userId: req.userId,
+          isActive: true,
+          endDate: { $lt: now }
+        },
+        {
+          isActive: false
+        }
+      ).exec(); // Run without waiting
     }
 
     const habits = await Habit.find(filter).sort({ createdAt: -1 });
 
-    // Check if habits are completed for specific date
     if (date) {
       const targetDate = new Date(date);
       targetDate.setHours(0, 0, 0, 0);
@@ -111,7 +117,6 @@ exports.getUserHabits = async (req, res) => {
       });
     }
 
-    // ✅ Add expiry info to each habit
     const habitsWithExpiry = habits.map(habit => ({
       ...habit.toObject(),
       isExpired: habit.isExpired,
@@ -166,7 +171,7 @@ exports.getHabitById = async (req, res) => {
   }
 };
 
-// ✅ UPDATE HABIT - Recalculates dates if frequency changes
+// ✅ UPDATE HABIT
 exports.updateHabit = async (req, res) => {
   try {
     const allowedUpdates = [
@@ -194,7 +199,6 @@ exports.updateHabit = async (req, res) => {
       });
     }
 
-    // ✅ If frequency changed, dates are recalculated via pre-save hook
     await habit.save();
 
     res.json({ 
@@ -211,7 +215,7 @@ exports.updateHabit = async (req, res) => {
   }
 };
 
-// ✅ DELETE HABIT (Soft delete)
+// ✅ DELETE HABIT
 exports.deleteHabit = async (req, res) => {
   try {
     const habit = await Habit.findOneAndUpdate(
@@ -240,7 +244,7 @@ exports.deleteHabit = async (req, res) => {
   }
 };
 
-// ✅ COMPLETE HABIT (WITH EXPIRY CHECK)
+// ✅ FIXED COMPLETE HABIT - Proper Daily Streak Logic
 exports.completeHabit = async (req, res) => {
   try {
     const { notes } = req.body;
@@ -256,7 +260,6 @@ exports.completeHabit = async (req, res) => {
       });
     }
 
-    // ✅ CHECK IF HABIT IS EXPIRED
     if (habit.isExpired) {
       return res.status(400).json({ 
         success: false,
@@ -268,7 +271,6 @@ exports.completeHabit = async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Check if already completed today
     const alreadyCompleted = habit.completedDates.some(date => {
       const completionDate = new Date(date);
       completionDate.setHours(0, 0, 0, 0);
@@ -282,44 +284,42 @@ exports.completeHabit = async (req, res) => {
       });
     }
 
-    // Calculate points
     const pointsEarned = habit.isNegative ? -habit.points : habit.points;
 
-    // Add completion date
     habit.completedDates.push(today);
     habit.lastCompletedDate = today;
-
-    // Update streak (per habit)
     habit.updateStreak();
-
-    // Update stats
     habit.stats.totalCompletions += 1;
     habit.stats.totalPointsEarned += pointsEarned;
 
     await habit.save();
 
-    // Update user points
     const user = await User.findById(req.userId);
     if (user && user.gamification) {
       user.gamification.totalPoints = (user.gamification.totalPoints || 0) + pointsEarned;
     }
 
-    // 🔥 GLOBAL DAILY STREAK LOGIC
-    const habits = await Habit.find({
+    // ✅ FIXED: Only check ACTIVE & NON-EXPIRED habits for daily streak
+    const now = new Date();
+    const activeHabits = await Habit.find({
       userId: req.userId,
       isActive: true,
       isPaused: false,
-      endDate: { $gte: new Date() } // ✅ Only count non-expired habits
+      endDate: { $gte: now } // ✅ Only habits that haven't expired yet
     });
 
-    // Check if ALL active habits are completed today
-    const allDoneToday = habits.every(h =>
+    console.log(`📊 Daily Streak Check: ${activeHabits.length} active non-expired habits`);
+
+    // ✅ Check if ALL currently active habits are completed today
+    const allDoneToday = activeHabits.length > 0 && activeHabits.every(h =>
       h.completedDates.some(d => {
         const cd = new Date(d);
         cd.setHours(0, 0, 0, 0);
         return cd.getTime() === today.getTime();
       })
     );
+
+    console.log(`✅ All habits done today? ${allDoneToday}`);
 
     if (allDoneToday) {
       if (!user.dailyStreak) {
@@ -343,10 +343,12 @@ exports.completeHabit = async (req, res) => {
         );
 
         if (diffDays === 1) {
+          // ✅ Consecutive day - increment streak
           user.dailyStreak.current += 1;
         } else if (diffDays === 0) {
-          // Same day - do nothing
+          // Same day - keep current streak
         } else {
+          // ✅ Gap in days - reset to 1
           user.dailyStreak.current = 1;
         }
       }
@@ -357,11 +359,12 @@ exports.completeHabit = async (req, res) => {
       );
 
       user.dailyStreak.lastCompletedDate = today;
+
+      console.log(`🔥 Daily Streak Updated: ${user.dailyStreak.current} days`);
     }
 
     await user.save();
 
-    // ✅ CREATE ACHIEVEMENT NOTIFICATION
     await notificationService.createNotification(req.userId, {
       type: 'achievement',
       title: '🎉 Habit Completed!',
@@ -372,12 +375,11 @@ exports.completeHabit = async (req, res) => {
       }
     });
 
-    // ✅ If all habits completed, send bonus notification
     if (allDoneToday) {
       await notificationService.createNotification(req.userId, {
         type: 'achievement',
         title: '🏆 All Habits Completed!',
-        body: `Amazing! You completed all your habits today! Daily streak: ${user.dailyStreak.current} days`,
+        body: `Amazing! You completed all your active habits today! Daily streak: ${user.dailyStreak.current} days`,
         relatedEntity: {
           entityType: 'habit',
           entityId: null
@@ -467,7 +469,7 @@ exports.uncompleteHabit = async (req, res) => {
   }
 };
 
-// ✅ USE BUFFER/SKIP DAY
+// ✅ USE BUFFER DAY
 exports.useBufferDay = async (req, res) => {
   try {
     const habit = await Habit.findOne({ 
@@ -500,142 +502,6 @@ exports.useBufferDay = async (req, res) => {
     });
   } catch (error) {
     console.error('Buffer Day Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
-  }
-};
-
-// ✅ GET STREAK STATS
-exports.getStreakStats = async (req, res) => {
-  try {
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
-    });
-
-    if (!habit) {
-      return res.status(404).json({ 
-        success: false,
-        error: 'Habit not found' 
-      });
-    }
-
-    const user = await User.findById(req.userId);
-
-    res.json({ 
-      success: true, 
-      habitStreaks: {
-        current: habit.streak,
-        longest: habit.longestStreak,
-        lastCompletedDate: habit.lastCompletedDate,
-        bufferDaysUsed: habit.bufferDaysUsed,
-        bufferDaysAllowed: habit.skipDaysAllowed,
-        isExpired: habit.isExpired,
-        remainingDays: habit.getRemainingDays(),
-        startDate: habit.startDate,
-        endDate: habit.endDate
-      },
-      dailyStreak: user?.dailyStreak || { current: 0, longest: 0 }
-    });
-  } catch (error) {
-    console.error('Streak Stats Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
-  }
-};
-
-// ✅ GET HABIT ANALYTICS
-exports.getHabitAnalytics = async (req, res) => {
-  try {
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
-    });
-
-    if (!habit) {
-      return res.status(404).json({ 
-        success: false,
-        error: 'Habit not found' 
-      });
-    }
-
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    
-    const last30Days = habit.completedDates
-      .filter(date => new Date(date) >= thirtyDaysAgo)
-      .sort((a, b) => new Date(b) - new Date(a));
-
-    const completionRate = ((last30Days.length / 30) * 100).toFixed(2);
-
-    res.json({ 
-      success: true, 
-      analytics: {
-        totalCompletions: habit.stats.totalCompletions,
-        currentStreak: habit.streak,
-        longestStreak: habit.longestStreak,
-        totalPointsEarned: habit.stats.totalPointsEarned,
-        completionRate: parseFloat(completionRate),
-        last30DaysCount: last30Days.length,
-        last30DaysHistory: last30Days,
-        isExpired: habit.isExpired,
-        remainingDays: habit.getRemainingDays(),
-        durationDays: habit.durationDays,
-        frequency: habit.frequency
-      }
-    });
-  } catch (error) {
-    console.error('Habit Analytics Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message 
-    });
-  }
-};
-
-// ✅ GET OVERALL USER ANALYTICS
-exports.getOverallAnalytics = async (req, res) => {
-  try {
-    const habits = await Habit.find({ 
-      userId: req.userId, 
-      isActive: true,
-      endDate: { $gte: new Date() } // ✅ Only count non-expired habits
-    });
-    
-    const totalHabits = habits.length;
-    const totalCompletions = habits.reduce((sum, h) => sum + h.stats.totalCompletions, 0);
-    const totalPoints = habits.reduce((sum, h) => sum + h.stats.totalPointsEarned, 0);
-    
-    const activeStreaks = habits.filter(h => h.streak > 0).length;
-    const longestStreak = Math.max(...habits.map(h => h.longestStreak), 0);
-
-    const categoryBreakdown = {};
-    habits.forEach(habit => {
-      if (!categoryBreakdown[habit.category]) {
-        categoryBreakdown[habit.category] = 0;
-      }
-      categoryBreakdown[habit.category]++;
-    });
-
-    const user = await User.findById(req.userId);
-
-    res.json({ 
-      success: true, 
-      analytics: {
-        totalHabits,
-        totalCompletions,
-        totalPoints,
-        activeStreaks,
-        longestStreak,
-        categoryBreakdown,
-        dailyStreak: user?.dailyStreak || { current: 0, longest: 0 }
-      }
-    });
-  } catch (error) {
-    console.error('Overall Analytics Error:', error);
     res.status(500).json({ 
       success: false,
       error: error.message 
@@ -707,6 +573,251 @@ exports.resumeHabit = async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: error.message 
+    });
+  }
+};
+
+// ✅ GET STREAK STATS
+exports.getStreakStats = async (req, res) => {
+  try {
+    const habit = await Habit.findOne({ 
+      _id: req.params.id, 
+      userId: req.userId 
+    });
+
+    if (!habit) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Habit not found' 
+      });
+    }
+
+    const user = await User.findById(req.userId);
+
+    res.json({ 
+      success: true,
+      data: {
+        habitStreaks: {
+          current: habit.streak,
+          longest: habit.longestStreak,
+          lastCompletedDate: habit.lastCompletedDate,
+          bufferDaysUsed: habit.bufferDaysUsed,
+          bufferDaysAllowed: habit.skipDaysAllowed,
+          isExpired: habit.isExpired,
+          remainingDays: habit.getRemainingDays(),
+          startDate: habit.startDate,
+          endDate: habit.endDate
+        },
+        dailyStreak: user?.dailyStreak || { current: 0, longest: 0 }
+      }
+    });
+  } catch (error) {
+    console.error('Streak Stats Error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+};
+
+// ✅ GET HABIT ANALYTICS
+exports.getHabitAnalytics = async (req, res) => {
+  try {
+    const habit = await Habit.findOne({ 
+      _id: req.params.id, 
+      userId: req.userId 
+    });
+
+    if (!habit) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Habit not found' 
+      });
+    }
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    
+    const last30Days = habit.completedDates
+      .filter(date => new Date(date) >= thirtyDaysAgo)
+      .sort((a, b) => new Date(b) - new Date(a));
+
+    const completionRate = ((last30Days.length / 30) * 100).toFixed(2);
+
+    res.json({ 
+      success: true,
+      data: {
+        totalCompletions: habit.stats.totalCompletions,
+        currentStreak: habit.streak,
+        longestStreak: habit.longestStreak,
+        totalPointsEarned: habit.stats.totalPointsEarned,
+        completionRate: parseFloat(completionRate),
+        last30DaysCount: last30Days.length,
+        last30DaysHistory: last30Days,
+        isExpired: habit.isExpired,
+        remainingDays: habit.getRemainingDays(),
+        durationDays: habit.durationDays,
+        frequency: habit.frequency
+      }
+    });
+  } catch (error) {
+    console.error('Habit Analytics Error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+};
+
+// ✅ GET OVERALL USER ANALYTICS
+exports.getOverallAnalytics = async (req, res) => {
+  try {
+    const habits = await Habit.find({ 
+      userId: req.userId, 
+      isActive: true,
+      endDate: { $gte: new Date() }
+    });
+    
+    const totalHabits = habits.length;
+    const totalCompletions = habits.reduce((sum, h) => sum + h.stats.totalCompletions, 0);
+    const totalPoints = habits.reduce((sum, h) => sum + h.stats.totalPointsEarned, 0);
+    
+    const activeStreaks = habits.filter(h => h.streak > 0).length;
+    const longestStreak = Math.max(...habits.map(h => h.longestStreak), 0);
+
+    const categoryBreakdown = {};
+    habits.forEach(habit => {
+      if (!categoryBreakdown[habit.category]) {
+        categoryBreakdown[habit.category] = 0;
+      }
+      categoryBreakdown[habit.category]++;
+    });
+
+    const user = await User.findById(req.userId);
+
+    res.json({ 
+      success: true,
+      data: {
+        totalHabits,
+        totalCompletions,
+        totalPoints,
+        activeStreaks,
+        longestStreak,
+        categoryBreakdown,
+        dailyStreak: user?.dailyStreak || { current: 0, longest: 0 }
+      }
+    });
+  } catch (error) {
+    console.error('Overall Analytics Error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+};
+
+// ✅ GET CHART ANALYTICS - NEW
+exports.getChartAnalytics = async (req, res) => {
+  try {
+    const { period = 'week' } = req.query;
+    const userId = req.userId;
+    
+    console.log(`📊 Chart analytics requested: ${period} for user ${userId}`);
+    
+    const validPeriods = ['week', 'month', 'year'];
+    if (!validPeriods.includes(period)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Invalid period. Use: ${validPeriods.join(', ')}` 
+      });
+    }
+    
+    let days, labels;
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+    
+    if (period === 'week') {
+      days = 7;
+      labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    } else if (period === 'month') {
+      days = 28;
+      labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
+    } else if (period === 'year') {
+      days = 365;
+      labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    }
+    
+    const startDate = new Date(now);
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+    
+    console.log(`📅 Date range: ${startDate.toISOString()} to ${now.toISOString()}`);
+    
+    // Get all habits with completedDates in range
+    const habits = await Habit.find({
+      userId: userId,
+      isActive: true
+    });
+    
+    // Count completions from completedDates array
+    const data = new Array(labels.length).fill(0);
+    
+    habits.forEach(habit => {
+      habit.completedDates.forEach(completedDate => {
+        const date = new Date(completedDate);
+        
+        if (date >= startDate && date <= now) {
+          if (period === 'week') {
+            const daysDiff = Math.floor((now - date) / (24 * 60 * 60 * 1000));
+            const index = Math.max(0, Math.min(6, 6 - daysDiff));
+            data[index]++;
+          } 
+          else if (period === 'month') {
+            const daysDiff = Math.floor((now - date) / (24 * 60 * 60 * 1000));
+            const weekIndex = Math.floor(daysDiff / 7);
+            const index = Math.max(0, Math.min(3, 3 - weekIndex));
+            data[index]++;
+          } 
+          else if (period === 'year') {
+            const monthIndex = date.getMonth();
+            data[monthIndex]++;
+          }
+        }
+      });
+    });
+    
+    const totalHabits = habits.length;
+    const totalCompletions = habits.reduce((sum, h) => 
+      h.completedDates.filter(d => {
+        const date = new Date(d);
+        return date >= startDate && date <= now;
+      }).length + sum, 0
+    );
+    
+    console.log(`📊 Chart data:`, { 
+      labels: labels.slice(0, 3), 
+      data: data.slice(0, 3), 
+      totalHabits,
+      totalCompletions
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        labels,
+        data,
+        totalHabits,
+        period,
+        startDate: startDate.toISOString(),
+        endDate: now.toISOString(),
+        totalCompletions
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Chart analytics error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to fetch chart analytics'
     });
   }
 };
