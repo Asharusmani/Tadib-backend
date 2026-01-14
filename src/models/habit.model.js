@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
-// ✅ Duration mapping
+// ✅ UPDATED Duration mapping - More realistic durations
 const FREQUENCY_DURATION = {
-  'Daily': 1,
-  'Weekly': 7,
-  'Monthly': 30
+  'Daily': 30,      // ✅ 30 days (1 month)
+  'Weekly': 90,     // ✅ 90 days (3 months)
+  'Monthly': 365    // ✅ 365 days (1 year)
 };
 
 const habitSchema = new mongoose.Schema({
@@ -57,7 +57,7 @@ const habitSchema = new mongoose.Schema({
   
   frequency: { 
     type: String, 
-    enum: ['Daily', 'Weekly', 'Monthly'],
+    enum: ['Daily', 'Weekly', 'Monthly', 'Custom'], // ✅ Added 'Custom'
     default: 'Daily' 
   },
   
@@ -66,7 +66,7 @@ const habitSchema = new mongoose.Schema({
     required: true 
   },
   
-  // ✅ Date fields - set by pre-save hook
+  // ✅ Date fields - set by pre-save hook or controller
   startDate: {
     type: Date,
     default: Date.now
@@ -77,6 +77,11 @@ const habitSchema = new mongoose.Schema({
   },
   
   durationDays: {
+    type: Number
+  },
+  
+  // ✅ Custom duration for date-range habits (from Planner)
+  customDuration: {
     type: Number
   },
   
@@ -125,19 +130,33 @@ const habitSchema = new mongoose.Schema({
 });
 
 // ========================================
-// ✅ FIXED PRE-SAVE HOOK - Properly calculate endDate with reminderTime
+// ✅ ENHANCED PRE-SAVE HOOK - Handles both frequency-based and custom duration
 // ========================================
 habitSchema.pre('save', async function() {
+  // Skip if dates are already set (coming from controller)
+  if (this.startDate && this.endDate && this.durationDays) {
+    console.log('⏭️ Dates already set by controller, skipping pre-save calculation');
+    return;
+  }
+
   // Calculate dates for new habits or when frequency changes
   if (this.isNew || this.isModified('frequency') || this.isModified('reminderTime')) {
-    const daysToAdd = FREQUENCY_DURATION[this.frequency] || 1;
+    
+    // ✅ Use customDuration if provided (from Planner), otherwise use frequency mapping
+    const daysToAdd = this.customDuration || FREQUENCY_DURATION[this.frequency] || 30;
     
     if (!this.startDate) {
       this.startDate = new Date();
     }
     
-    // ✅ Parse reminder time (format: "16:00" or "4:00 PM")
+    // ✅ Parse reminder time (format: "16:00" or "4:00 PM" or ISO string)
     const parseReminderTime = (timeStr) => {
+      // Handle ISO date string
+      if (timeStr.includes('T') || timeStr.includes('Z')) {
+        const date = new Date(timeStr);
+        return { hours: date.getHours(), minutes: date.getMinutes() };
+      }
+      
       // Handle "HH:mm" format
       const match = timeStr.match(/(\d{1,2}):(\d{2})/);
       if (match) {
@@ -166,7 +185,7 @@ habitSchema.pre('save', async function() {
     this.endDate = endDate;
     this.durationDays = daysToAdd;
     
-    console.log('✅ Dates calculated:', {
+    console.log('✅ Dates calculated by pre-save hook:', {
       name: this.name,
       frequency: this.frequency,
       duration: daysToAdd,

@@ -2,9 +2,75 @@ const Habit = require('../models/habit.model');
 const User = require('../models/user.model');
 const notificationService = require('../services/notification.service');
 
-// ✅ CREATE NEW HABIT
+// controllers/habit.controller.js - UPDATED CREATE HABIT
+
+
+// ✅ CREATE NEW HABIT - ENHANCED with Custom Duration
 exports.createHabit = async (req, res) => {
   try {
+    // Calculate duration based on frequency or custom duration
+    let durationDays;
+    let startDate = new Date();
+    let endDate;
+
+    if (req.body.customDuration) {
+      // ✅ Custom duration from date range selection (Planner Screen)
+      durationDays = req.body.customDuration;
+      
+      if (req.body.startDate) {
+        startDate = new Date(req.body.startDate);
+      }
+      
+      if (req.body.endDate) {
+        endDate = new Date(req.body.endDate);
+      } else {
+        // If no end date, calculate from duration
+        endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + durationDays - 1);
+      }
+      
+      console.log('📅 Custom duration habit:', {
+        durationDays,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      });
+    } else {
+      // ✅ Standard frequency-based duration (Modal/Other screens)
+      const frequency = req.body.frequency || 'Daily';
+      
+      switch (frequency) {
+        case 'Daily':
+          durationDays = 30;
+          break;
+        case 'Weekly':
+          durationDays = 90;
+          break;
+        case 'Monthly':
+          durationDays = 365;
+          break;
+        case 'Custom':
+          durationDays = req.body.customDuration || 30;
+          break;
+        default:
+          durationDays = 30;
+      }
+      
+      startDate = new Date();
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + durationDays - 1);
+      
+      console.log('📅 Frequency-based habit:', {
+        frequency,
+        durationDays,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      });
+    }
+
+    // Set times properly
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+
     const habitData = {
       userId: req.userId,
       name: req.body.name,
@@ -13,8 +79,11 @@ exports.createHabit = async (req, res) => {
       isNegative: req.body.isNegative || false,
       points: req.body.points || 10,
       skipDaysAllowed: req.body.skipDaysAllowed || 0,
-      frequency: req.body.frequency || 'Daily',
+      frequency: req.body.frequency || 'Custom',
       reminderTime: req.body.reminderTime,
+      durationDays: durationDays,
+      startDate: startDate,
+      endDate: endDate,
       streak: 0,
       longestStreak: 0,
       completedDates: [],
@@ -23,6 +92,12 @@ exports.createHabit = async (req, res) => {
         totalPointsEarned: 0
       }
     };
+
+    console.log('📝 Creating habit:', {
+      name: habitData.name,
+      frequency: habitData.frequency,
+      durationDays: habitData.durationDays
+    });
 
     const habit = await Habit.create(habitData);
 
@@ -41,7 +116,7 @@ exports.createHabit = async (req, res) => {
     res.status(201).json({
       success: true,
       habit,
-      message: `Habit created successfully! Duration: ${habit.durationDays} days (${habit.frequency})`
+      message: `Habit created successfully! Duration: ${habit.durationDays} days${habit.frequency !== 'Custom' ? ` (${habit.frequency})` : ''}`
     });
   } catch (error) {
     console.error('Create Habit Error:', error);
