@@ -113,6 +113,8 @@ exports.login = async (req, res) => {
         console.error('Login error:', error);
         res.status(500).json({ error: error.message });
     }
+
+    
 };
 
 exports.socialLogin = async (req, res) => {

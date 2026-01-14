@@ -38,16 +38,16 @@ exports.createHabit = async (req, res) => {
       });
     }
 
-    res.status(201).json({ 
-      success: true, 
+    res.status(201).json({
+      success: true,
       habit,
       message: `Habit created successfully! Duration: ${habit.durationDays} days (${habit.frequency})`
     });
   } catch (error) {
     console.error('Create Habit Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -56,7 +56,7 @@ exports.createHabit = async (req, res) => {
 exports.getUserHabits = async (req, res) => {
   try {
     const { status, category, date, includeExpired } = req.query;
-    
+
     const user = await User.findById(req.userId);
 
     if (user?.dailyStreak?.lastCompletedDate) {
@@ -76,11 +76,11 @@ exports.getUserHabits = async (req, res) => {
       }
     }
 
-    const filter = { 
-      userId: req.userId, 
-      isActive: true 
+    const filter = {
+      userId: req.userId,
+      isActive: true
     };
-    
+
     if (category) filter.category = category;
     if (status === 'paused') filter.isPaused = true;
 
@@ -88,7 +88,7 @@ exports.getUserHabits = async (req, res) => {
     if (!includeExpired) {
       const now = new Date();
       filter.endDate = { $gte: now };
-      
+
       // ✅ Auto-archive expired habits in background
       Habit.updateMany(
         {
@@ -107,7 +107,7 @@ exports.getUserHabits = async (req, res) => {
     if (date) {
       const targetDate = new Date(date);
       targetDate.setHours(0, 0, 0, 0);
-      
+
       habits.forEach(habit => {
         habit._doc.completedToday = habit.completedDates.some(d => {
           const completionDate = new Date(d);
@@ -124,17 +124,17 @@ exports.getUserHabits = async (req, res) => {
       completedToday: habit.completedToday
     }));
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       habits: habitsWithExpiry,
       count: habitsWithExpiry.length,
       dailyStreak: user?.dailyStreak || { current: 0, longest: 0 }
     });
   } catch (error) {
     console.error('Get Habits Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 };
@@ -142,20 +142,20 @@ exports.getUserHabits = async (req, res) => {
 // ✅ GET SINGLE HABIT BY ID
 exports.getHabitById = async (req, res) => {
   try {
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
+    const habit = await Habit.findOne({
+      _id: req.params.id,
+      userId: req.userId
     });
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       habit: {
         ...habit.toObject(),
         isExpired: habit.isExpired,
@@ -164,9 +164,9 @@ exports.getHabitById = async (req, res) => {
     });
   } catch (error) {
     console.error('Get Habit Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -175,10 +175,10 @@ exports.getHabitById = async (req, res) => {
 exports.updateHabit = async (req, res) => {
   try {
     const allowedUpdates = [
-      'name', 'icon', 'category', 'isNegative', 'points', 
+      'name', 'icon', 'category', 'isNegative', 'points',
       'skipDaysAllowed', 'frequency', 'reminderTime'
     ];
-    
+
     const updates = {};
     allowedUpdates.forEach(field => {
       if (req.body[field] !== undefined) {
@@ -193,24 +193,24 @@ exports.updateHabit = async (req, res) => {
     );
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
     await habit.save();
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       habit,
       message: updates.frequency ? 'Habit updated! Dates recalculated.' : 'Habit updated successfully!'
     });
   } catch (error) {
     console.error('Update Habit Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -225,21 +225,21 @@ exports.deleteHabit = async (req, res) => {
     );
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
-    res.json({ 
-      success: true, 
-      message: 'Habit deleted successfully' 
+    res.json({
+      success: true,
+      message: 'Habit deleted successfully'
     });
   } catch (error) {
     console.error('Delete Habit Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -248,20 +248,20 @@ exports.deleteHabit = async (req, res) => {
 exports.completeHabit = async (req, res) => {
   try {
     const { notes } = req.body;
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
+    const habit = await Habit.findOne({
+      _id: req.params.id,
+      userId: req.userId
     });
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
     if (habit.isExpired) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         error: 'This habit has expired. Duration complete.',
         isExpired: true
@@ -278,9 +278,9 @@ exports.completeHabit = async (req, res) => {
     });
 
     if (alreadyCompleted) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'Already completed today' 
+        error: 'Already completed today'
       });
     }
 
@@ -387,8 +387,8 @@ exports.completeHabit = async (req, res) => {
       });
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       habit: {
         ...habit.toObject(),
         isExpired: habit.isExpired,
@@ -402,9 +402,9 @@ exports.completeHabit = async (req, res) => {
     });
   } catch (error) {
     console.error('Complete Habit Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -412,15 +412,15 @@ exports.completeHabit = async (req, res) => {
 // ✅ UNCOMPLETE HABIT
 exports.uncompleteHabit = async (req, res) => {
   try {
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
+    const habit = await Habit.findOne({
+      _id: req.params.id,
+      userId: req.userId
     });
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
@@ -434,9 +434,9 @@ exports.uncompleteHabit = async (req, res) => {
     });
 
     if (completionIndex === -1) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'No completion found for today' 
+        error: 'No completion found for today'
       });
     }
 
@@ -455,16 +455,16 @@ exports.uncompleteHabit = async (req, res) => {
       await user.save();
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       habit,
-      habitStreak: habit.streak 
+      habitStreak: habit.streak
     });
   } catch (error) {
     console.error('Uncomplete Habit Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -472,39 +472,39 @@ exports.uncompleteHabit = async (req, res) => {
 // ✅ USE BUFFER DAY
 exports.useBufferDay = async (req, res) => {
   try {
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
+    const habit = await Habit.findOne({
+      _id: req.params.id,
+      userId: req.userId
     });
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
     if (habit.bufferDaysUsed >= habit.skipDaysAllowed) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        error: 'No buffer days remaining' 
+        error: 'No buffer days remaining'
       });
     }
 
     habit.bufferDaysUsed += 1;
     await habit.save();
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'Buffer day used',
       remainingBufferDays: habit.skipDaysAllowed - habit.bufferDaysUsed,
       habit
     });
   } catch (error) {
     console.error('Buffer Day Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -513,16 +513,16 @@ exports.useBufferDay = async (req, res) => {
 exports.pauseHabit = async (req, res) => {
   try {
     const { pauseDuration } = req.body;
-    
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
+
+    const habit = await Habit.findOne({
+      _id: req.params.id,
+      userId: req.userId
     });
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
@@ -530,16 +530,16 @@ exports.pauseHabit = async (req, res) => {
     habit.pausedUntil = new Date(Date.now() + pauseDuration * 24 * 60 * 60 * 1000);
     await habit.save();
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       habit,
       message: `Habit paused for ${pauseDuration} days`
     });
   } catch (error) {
     console.error('Pause Habit Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -547,15 +547,15 @@ exports.pauseHabit = async (req, res) => {
 // ✅ RESUME HABIT
 exports.resumeHabit = async (req, res) => {
   try {
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
+    const habit = await Habit.findOne({
+      _id: req.params.id,
+      userId: req.userId
     });
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
@@ -563,16 +563,16 @@ exports.resumeHabit = async (req, res) => {
     habit.pausedUntil = undefined;
     await habit.save();
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       habit,
       message: 'Habit resumed successfully'
     });
   } catch (error) {
     console.error('Resume Habit Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -580,21 +580,21 @@ exports.resumeHabit = async (req, res) => {
 // ✅ GET STREAK STATS
 exports.getStreakStats = async (req, res) => {
   try {
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
+    const habit = await Habit.findOne({
+      _id: req.params.id,
+      userId: req.userId
     });
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
     const user = await User.findById(req.userId);
 
-    res.json({ 
+    res.json({
       success: true,
       data: {
         habitStreaks: {
@@ -613,9 +613,9 @@ exports.getStreakStats = async (req, res) => {
     });
   } catch (error) {
     console.error('Streak Stats Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -623,27 +623,27 @@ exports.getStreakStats = async (req, res) => {
 // ✅ GET HABIT ANALYTICS
 exports.getHabitAnalytics = async (req, res) => {
   try {
-    const habit = await Habit.findOne({ 
-      _id: req.params.id, 
-      userId: req.userId 
+    const habit = await Habit.findOne({
+      _id: req.params.id,
+      userId: req.userId
     });
 
     if (!habit) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: 'Habit not found' 
+        error: 'Habit not found'
       });
     }
 
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    
+
     const last30Days = habit.completedDates
       .filter(date => new Date(date) >= thirtyDaysAgo)
       .sort((a, b) => new Date(b) - new Date(a));
 
     const completionRate = ((last30Days.length / 30) * 100).toFixed(2);
 
-    res.json({ 
+    res.json({
       success: true,
       data: {
         totalCompletions: habit.stats.totalCompletions,
@@ -661,9 +661,9 @@ exports.getHabitAnalytics = async (req, res) => {
     });
   } catch (error) {
     console.error('Habit Analytics Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -671,16 +671,16 @@ exports.getHabitAnalytics = async (req, res) => {
 // ✅ GET OVERALL USER ANALYTICS
 exports.getOverallAnalytics = async (req, res) => {
   try {
-    const habits = await Habit.find({ 
-      userId: req.userId, 
+    const habits = await Habit.find({
+      userId: req.userId,
       isActive: true,
       endDate: { $gte: new Date() }
     });
-    
+
     const totalHabits = habits.length;
     const totalCompletions = habits.reduce((sum, h) => sum + h.stats.totalCompletions, 0);
     const totalPoints = habits.reduce((sum, h) => sum + h.stats.totalPointsEarned, 0);
-    
+
     const activeStreaks = habits.filter(h => h.streak > 0).length;
     const longestStreak = Math.max(...habits.map(h => h.longestStreak), 0);
 
@@ -694,7 +694,7 @@ exports.getOverallAnalytics = async (req, res) => {
 
     const user = await User.findById(req.userId);
 
-    res.json({ 
+    res.json({
       success: true,
       data: {
         totalHabits,
@@ -708,33 +708,38 @@ exports.getOverallAnalytics = async (req, res) => {
     });
   } catch (error) {
     console.error('Overall Analytics Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
+    });
+    // getChartAnalytics function ke end pe (line ~90 ke baad)
+    console.log('🔍 BACKEND RESPONSE:', {
+      totalHabits: habits.length,
+      activeHabits: activeHabits.length,
+      allHabitsFound: habits.map(h => ({ name: h.name, isActive: h.isActive }))
     });
   }
 };
-
-// ✅ GET CHART ANALYTICS - NEW
+// ✅ GET CHART ANALYTICS - FIXED: Correct active vs total habits
 exports.getChartAnalytics = async (req, res) => {
   try {
     const { period = 'week' } = req.query;
     const userId = req.userId;
-    
+
     console.log(`📊 Chart analytics requested: ${period} for user ${userId}`);
-    
+
     const validPeriods = ['week', 'month', 'year'];
     if (!validPeriods.includes(period)) {
-      return res.status(400).json({ 
-        success: false, 
-        error: `Invalid period. Use: ${validPeriods.join(', ')}` 
+      return res.status(400).json({
+        success: false,
+        error: `Invalid period. Use: ${validPeriods.join(', ')}`
       });
     }
-    
+
     let days, labels;
     const now = new Date();
     now.setHours(23, 59, 59, 999);
-    
+
     if (period === 'week') {
       days = 7;
       labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -745,38 +750,48 @@ exports.getChartAnalytics = async (req, res) => {
       days = 365;
       labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     }
-    
+
     const startDate = new Date(now);
     startDate.setDate(startDate.getDate() - days);
     startDate.setHours(0, 0, 0, 0);
-    
+
     console.log(`📅 Date range: ${startDate.toISOString()} to ${now.toISOString()}`);
-    
-    // Get all habits with completedDates in range
-    const habits = await Habit.find({
-      userId: userId,
-      isActive: true
+
+    // ✅ FIXED: Get ALL habits for complete history (total count)
+    const allHabits = await Habit.find({
+      userId: userId
+      // No filters - get everything for total count
     });
-    
-    // Count completions from completedDates array
+
+    // ✅ FIXED: Get ONLY currently active habits (not expired, not archived)
+    const activeHabits = await Habit.find({
+      userId: userId,
+      isActive: true,
+      isPaused: false,
+      endDate: { $gte: now } // Must not be expired
+    });
+
+    console.log(`📊 Found ${allHabits.length} total habits (all-time), ${activeHabits.length} currently active`);
+
+    // Count completions from ALL habits (for historical data)
     const data = new Array(labels.length).fill(0);
-    
-    habits.forEach(habit => {
+
+    allHabits.forEach(habit => {
       habit.completedDates.forEach(completedDate => {
         const date = new Date(completedDate);
-        
+
         if (date >= startDate && date <= now) {
           if (period === 'week') {
             const daysDiff = Math.floor((now - date) / (24 * 60 * 60 * 1000));
             const index = Math.max(0, Math.min(6, 6 - daysDiff));
             data[index]++;
-          } 
+          }
           else if (period === 'month') {
             const daysDiff = Math.floor((now - date) / (24 * 60 * 60 * 1000));
             const weekIndex = Math.floor(daysDiff / 7);
             const index = Math.max(0, Math.min(3, 3 - weekIndex));
             data[index]++;
-          } 
+          }
           else if (period === 'year') {
             const monthIndex = date.getMonth();
             data[monthIndex]++;
@@ -784,39 +799,40 @@ exports.getChartAnalytics = async (req, res) => {
         }
       });
     });
-    
-    const totalHabits = habits.length;
-    const totalCompletions = habits.reduce((sum, h) => 
+
+    const totalCompletions = allHabits.reduce((sum, h) =>
       h.completedDates.filter(d => {
         const date = new Date(d);
         return date >= startDate && date <= now;
       }).length + sum, 0
     );
-    
-    console.log(`📊 Chart data:`, { 
-      labels: labels.slice(0, 3), 
-      data: data.slice(0, 3), 
-      totalHabits,
+
+    console.log(`📊 Chart data:`, {
+      labels: labels.slice(0, 3),
+      data: data.slice(0, 3),
+      totalHabits: allHabits.length,
+      activeHabits: activeHabits.length,
       totalCompletions
     });
-    
+
     res.json({
       success: true,
       data: {
         labels,
         data,
-        totalHabits,
+        totalHabits: allHabits.length,       // ✅ All habits ever created (lifetime total)
+        activeHabits: activeHabits.length,   // ✅ Currently active, non-expired habits
         period,
         startDate: startDate.toISOString(),
         endDate: now.toISOString(),
         totalCompletions
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Chart analytics error:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       error: error.message || 'Failed to fetch chart analytics'
     });
   }

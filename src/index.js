@@ -1,4 +1,8 @@
+// ============================================
+// FILE 1: server.js (COMPLETE - REPLACE ENTIRE FILE)
+// ============================================
 const express = require('express');
+const http = require('http'); // ✅ CHANGED: Import http
 const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -8,16 +12,19 @@ const path = require('path');
 const notificationRoutes = require('./routes/notification.routes'); 
 const userRoutes = require('./routes/user.routes'); 
 const cronService = require('./services/cron.service');
+const notificationSocket = require('./socket/notificationSocket'); // ✅ NEW
+const notificationService = require('./services/notification.service'); // ✅ NEW
 
 require('dotenv').config();
 
 const app = express();
+const server = http.createServer(app); // ✅ CHANGED: Create HTTP server
 
 // ========================================
 // MIDDLEWARE
 // ========================================
 
-// Enable CORS for React Native
+// Enable CORS for React Native + Socket.IO
 app.use(cors({
   origin: '*', // In production, specify your frontend URL
   credentials: true
@@ -47,7 +54,6 @@ app.use('/api/', limiter);
 const authRoutes = require('./routes/auth.routes');
 const habitRoutes = require('./routes/habit.routes');
 const sharedHabitRoutes = require('./routes/sharedHabit.routes');
-
 
 // ========================================
 // DATABASE CONNECTION
@@ -85,6 +91,13 @@ mongoose.connection.on('error', (err) => {
 });
 
 // ========================================
+// ✅ INITIALIZE SOCKET.IO (AFTER SERVER CREATION)
+// ========================================
+notificationSocket.initialize(server);
+notificationService.setSocket(notificationSocket);
+console.log('✅ Socket.IO initialized and connected to NotificationService');
+
+// ========================================
 // ROUTES
 // ========================================
 app.use('/api/auth', authRoutes);
@@ -102,6 +115,7 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     database: isDBConnected ? 'Connected' : 'Disconnected',
+    socketIO: notificationSocket.getConnectionCount(), // ✅ NEW
     cronJobs: cronService.getStatus(),
     environment: process.env.NODE_ENV || 'development',
     mongooseVersion: mongoose.version
@@ -152,13 +166,14 @@ app.use((req, res) => {
 // START SERVER
 // ========================================
 const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log('\n' + '='.repeat(50));
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📍 API URL: http://localhost:${PORT}/api`);
   console.log(`💚 Health Check: http://localhost:${PORT}/health`);
   console.log(`📁 Uploads: http://localhost:${PORT}/uploads`);
+  console.log(`🔌 Socket.IO: Enabled`); // ✅ NEW
   console.log('='.repeat(50) + '\n');
 });
 
@@ -175,12 +190,17 @@ const gracefulShutdown = async (signal) => {
     console.log('🔌 HTTP server closed - no longer accepting connections');
     
     try {
-      // 1️⃣ Stop cron jobs first
+      // 1️⃣ Disconnect all socket connections
+      console.log('🔌 Disconnecting Socket.IO clients...');
+      notificationSocket.disconnectAll();
+      console.log('✅ Socket.IO clients disconnected');
+      
+      // 2️⃣ Stop cron jobs
       console.log('⏹️  Stopping cron jobs...');
       await cronService.stopAllJobs();
       console.log('✅ Cron jobs stopped');
       
-      // 2️⃣ Close database connection
+      // 3️⃣ Close database connection
       console.log('💾 Closing database connection...');
       await mongoose.connection.close(false);
       console.log('✅ Database connection closed');

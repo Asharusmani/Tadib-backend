@@ -16,7 +16,7 @@ const sharedHabitSchema = new mongoose.Schema({
   // ✅ FIXED: Updated enum to include all categories
   category: { 
     type: String, 
-    enum: ['spiritual', 'health', 'learning', 'discipline', 'custom'],
+    enum: ['Spiritual', 'Health', 'Learning', 'Discipline', 'Custom'],
     default: 'custom',
     required: true
   },

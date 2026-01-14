@@ -5,20 +5,17 @@ const express = require('express');
 const router = express.Router();
 const sharedHabitController = require('../controllers/sharedHabit.controller');
 const authMiddleware = require('../middleware/auth.middleware');
-
 const authenticate = authMiddleware.authenticate;
 
 // ========================================
 // PUBLIC ROUTES (No Auth)
 // ========================================
-
 // ✅ Verify invite token (public - no auth needed)
 router.get('/invite/:token/verify', sharedHabitController.verifyInviteToken);
 
 // ========================================
 // PROTECTED ROUTES (Auth Required)
 // ========================================
-
 // Create & Invite
 router.post('/', authenticate, sharedHabitController.createSharedHabit);
 router.post('/:habitId/invite', authenticate, sharedHabitController.inviteParticipant);
@@ -26,7 +23,7 @@ router.post('/:habitId/invite', authenticate, sharedHabitController.invitePartic
 // ✅ Accept invite after signup (with token)
 router.post('/invite/accept', authenticate, sharedHabitController.acceptInviteAfterSignup);
 
-// ✅ FIXED: Accept/Reject Invitation (in-app, from notification)
+// ✅ Accept/Reject Invitation (in-app, from notification)
 router.patch('/:habitId/accept', authenticate, sharedHabitController.acceptInvitation);
 router.patch('/:habitId/reject', authenticate, sharedHabitController.rejectInvitation);
 
@@ -51,4 +48,5 @@ router.get('/test-email', authenticate, async (req, res) => {
   res.json(result);
 });
 
+// ✅ FIXED: Only export router (removed "module.exports = exports")
 module.exports = router;
