@@ -46,3 +46,6 @@ router.get('/:id/streaks', habitController.getStreakStats);
 router.get('/:id/analytics', habitController.getHabitAnalytics);
 
 module.exports = router;
+  
+
+
